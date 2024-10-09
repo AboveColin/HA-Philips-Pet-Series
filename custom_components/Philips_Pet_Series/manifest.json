@@ -1,0 +1,11 @@
+{
+    "domain": "philips_pet_series",
+    "name": "Philips Pet Series",
+    "config_flow": true,
+    "documentation": "https://github.com/abovecolin/HA-Philips-Pet-Series",
+    "dependencies": [],
+    "codeowners": ["@abovecolin"],
+    "requirements": ["petsseries==0.0.1", "tinytuya"],
+    "iot_class": "cloud_polling",
+    "version": "0.1.0"
+  }
