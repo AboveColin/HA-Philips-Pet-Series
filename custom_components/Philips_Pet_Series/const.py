@@ -1,6 +1,6 @@
 """Constants for the Philips Pets Series integration."""
 
-DOMAIN = "philips_pets_series"
+DOMAIN = "philips_pet_series"
 
 WEEKDAYS = {
     0: "Monday",
