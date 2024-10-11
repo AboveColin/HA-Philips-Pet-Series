@@ -30,25 +30,6 @@ This integration can be installed via [HACS](https://hacs.xyz/).
 3. Click on the "+" button to add a new integration.
 4. Search for "Philips Pet Series" and follow the setup instructions.
 
-5. ## Installation
-
-This integration can be installed via [HACS](https://hacs.xyz/).
-
-1. Ensure that [HACS](https://hacs.xyz/) is installed and configured in your Home Assistant setup.
-2. Add this repository to HACS:
-   - Go to HACS in the Home Assistant sidebar.
-   - Click on the three dots in the top right corner and select "Custom repositories".
-   - Add the repository URL: `https://github.com/abovecolin/HA-Philips-Pet-Series` and select the category as "Integration".
-3. Search for "Philips Pet Series" in HACS and install it.
-4. Restart Home Assistant.
-
-## Configuration
-
-1. Go to the Home Assistant Configuration page.
-2. Click on "Integrations".
-3. Click on the "+" button to add a new integration.
-4. Search for "Philips Pet Series" and follow the setup instructions.
-
 ## Authentication
 
 This integration uses OAuth2 tokens (access_token and refresh_token) to authenticate with the PetsSeries API. Follow the steps below to obtain and set up your tokens.
