@@ -11,10 +11,9 @@ This is a Home Assistant integration for the Philips Pet Series devices. It allo
 
 **Note**: Camera support is not yet implemented.
 
-<img width="329" alt="Screenshot 2024-10-11 at 17 42 48" src="https://github.com/user-attachments/assets/eed2888f-101f-473c-a706-47409116e1ef">
 <img width="323" alt="Screenshot 2024-10-11 at 17 43 06" src="https://github.com/user-attachments/assets/2a7b5536-1952-40d3-8bea-b214e145f9d3">
 <img width="326" alt="Screenshot 2024-10-11 at 17 43 25" src="https://github.com/user-attachments/assets/fe4101cd-f250-4f45-8af6-bcec2c8b77b4">
-
+<img width="329" alt="Screenshot 2024-10-11 at 17 42 48" src="https://github.com/user-attachments/assets/eed2888f-101f-473c-a706-47409116e1ef">
 
 ## Installation
 
