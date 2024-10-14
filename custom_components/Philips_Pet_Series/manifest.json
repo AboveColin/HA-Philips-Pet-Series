@@ -3,6 +3,7 @@
     "name": "Philips Pet Series",
     "config_flow": true,
     "documentation": "https://github.com/abovecolin/HA-Philips-Pet-Series",
+    "issue_tracker": "https://github.com/AboveColin/HA-Philips-Pet-Series/issues",
     "dependencies": [],
     "codeowners": ["@abovecolin"],
     "requirements": ["petsseries==0.0.1", "tinytuya"],
