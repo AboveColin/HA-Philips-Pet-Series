@@ -8,5 +8,5 @@
     "requirements": ["petsseries==0.2.0", "tinytuya"],
     "dependencies": ["petsseries==0.2.0", "tinytuya"],
     "iot_class": "cloud_polling",
-    "version": "0.1.1"
+    "version": "0.1.2"
   }
