@@ -5,8 +5,8 @@
     "documentation": "https://github.com/abovecolin/HA-Philips-Pet-Series",
     "issue_tracker": "https://github.com/AboveColin/HA-Philips-Pet-Series/issues",
     "codeowners": ["@abovecolin"],
-    "requirements": ["petsseries==0.2.0", "tinytuya"],
-    "dependencies": ["petsseries==0.2.0", "tinytuya"],
+    "requirements": ["petsseries==0.2.0", "tinytuya==1.15.1"],
+    "dependencies": [],
     "iot_class": "cloud_polling",
-    "version": "0.1.2"
+    "version": "0.1.3"
   }
