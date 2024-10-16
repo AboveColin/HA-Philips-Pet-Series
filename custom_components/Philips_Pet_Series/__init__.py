@@ -11,12 +11,18 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from homeassistant.exceptions import ConfigEntryAuthFailed
 
+_LOGGER = logging.getLogger(__name__)
+
+try:
+    import petsseries
+except ImportError as e:
+    _LOGGER.error("Failed to import petsseries module: %s", e)
+    raise
+
 from petsseries import PetsSeriesClient
 from petsseries.models import Event
 
 from .const import DOMAIN
-
-_LOGGER = logging.getLogger(__name__)
 
 PLATFORMS = [
     Platform.SWITCH,
