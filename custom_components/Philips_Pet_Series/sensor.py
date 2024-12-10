@@ -103,7 +103,7 @@ class PhilipsPetsSeriesEventSensor(PhilipsPetsSeriesEntity, SensorEntity):
                 _LOGGER.error(f"Failed to parse time: {latest_event.time}")
         else:
             self._attr_device_class = None
-            return ">24h ago"
+            return ">24 hours ago"
 
     @property
     def extra_state_attributes(self):
@@ -119,11 +119,9 @@ class PhilipsPetsSeriesEventSensor(PhilipsPetsSeriesEntity, SensorEntity):
             attributes["event_id"] = latest_event.id
             attributes["original_time"] = (
                 latest_event.time
-            )  # Preserve original time string
+            )
             if parsed_time:
-                # Include UNIX timestamp as an attribute
                 attributes["timestamp"] = parsed_time.timestamp()
-            # Add additional attributes based on event type
             if latest_event.type == "motion_detected":
                 attributes.update(
                     {
