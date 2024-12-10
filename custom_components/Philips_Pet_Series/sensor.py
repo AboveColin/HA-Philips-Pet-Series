@@ -72,42 +72,38 @@ class PhilipsPetsSeriesEventSensor(PhilipsPetsSeriesEntity, SensorEntity):
         coordinator: PhilipsPetsSeriesDataUpdateCoordinator,
         home,
         device,
-        event_type,  # Removed type hint for flexibility
+        event_type,
     ):
         """Initialize the sensor."""
         super().__init__(coordinator, device, home)
-        # Convert event_type to string if it's not already
         if isinstance(event_type, str):
             event_type_str = event_type
         elif hasattr(event_type, "value"):
-            # If event_type is an Enum, use its value
             event_type_str = event_type.value
         else:
-            # Fallback to string representation
             event_type_str = str(event_type)
 
         self._event_type = event_type_str
         self._attr_unique_id = f"{device.id}_last_{self._event_type}_event"
 
-        # Fixing the f-string by using single quotes inside to prevent syntax errors
         self._attr_name = f"Last {self._event_type.replace('eventtype.', ' ').replace('_', ' ').title()} Event"
 
         self._attr_device_class = SensorDeviceClass.TIMESTAMP
 
     @property
     def state(self):
-        """Return the state of the sensor as an ISO 8601 datetime string."""
         key = f"{self._home.id}_{self._event_type}"
         events = self.coordinator.data.get("events_by_home_and_type", {}).get(key, [])
         if events:
             latest_event = events[0]
             parsed_time = dt_util.parse_datetime(latest_event.time)
             if parsed_time:
-                # Return ISO 8601 formatted datetime string
                 return parsed_time.isoformat()
             else:
                 _LOGGER.error(f"Failed to parse time: {latest_event.time}")
-        return None
+        else:
+            self._attr_device_class = None
+            return ">24 hours ago"
 
     @property
     def extra_state_attributes(self):
@@ -123,11 +119,9 @@ class PhilipsPetsSeriesEventSensor(PhilipsPetsSeriesEntity, SensorEntity):
             attributes["event_id"] = latest_event.id
             attributes["original_time"] = (
                 latest_event.time
-            )  # Preserve original time string
+            )
             if parsed_time:
-                # Include UNIX timestamp as an attribute
                 attributes["timestamp"] = parsed_time.timestamp()
-            # Add additional attributes based on event type
             if latest_event.type == "motion_detected":
                 attributes.update(
                     {
