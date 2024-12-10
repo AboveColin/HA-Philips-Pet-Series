@@ -1,5 +1,5 @@
 {
-    "domain": "philips_pet_series",
+    "domain": "Philips_Pet_Series",
     "name": "Philips Pet Series",
     "config_flow": true,
     "documentation": "https://github.com/abovecolin/HA-Philips-Pet-Series",
