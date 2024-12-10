@@ -1,12 +1,12 @@
 {
-    "domain": "Philips_Pet_Series",
-    "name": "Philips Pet Series",
-    "config_flow": true,
-    "documentation": "https://github.com/abovecolin/HA-Philips-Pet-Series",
-    "issue_tracker": "https://github.com/AboveColin/HA-Philips-Pet-Series/issues",
-    "codeowners": ["@abovecolin"],
-    "requirements": ["petsseries==0.2.1"],
-    "dependencies": [],
-    "iot_class": "cloud_polling",
-    "version": "0.1.4"
-  }
+  "domain": "Philips_Pet_Series",
+  "name": "Philips Pet Series",
+  "codeowners": ["@abovecolin"],
+  "config_flow": true,
+  "dependencies": [],
+  "documentation": "https://github.com/abovecolin/HA-Philips-Pet-Series",
+  "iot_class": "cloud_polling",
+  "issue_tracker": "https://github.com/AboveColin/HA-Philips-Pet-Series/issues",
+  "requirements": ["petsseries==0.2.1"],
+  "version": "0.1.5"
+}
