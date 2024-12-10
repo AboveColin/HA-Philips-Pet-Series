@@ -1,5 +1,5 @@
 {
-  "domain": "Philips_Pet_Series",
+  "domain": "philips_pet_series",
   "name": "Philips Pet Series",
   "codeowners": ["@abovecolin"],
   "config_flow": true,
