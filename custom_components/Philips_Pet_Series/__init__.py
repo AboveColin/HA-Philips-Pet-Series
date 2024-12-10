@@ -10,6 +10,7 @@ from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from homeassistant.exceptions import ConfigEntryAuthFailed
+from homeassistant.util import dt as dt_util
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -53,7 +54,7 @@ class PhilipsPetsSeriesDataUpdateCoordinator(DataUpdateCoordinator):
             update_interval=SCAN_INTERVAL,
         )
         self._client = client
-        self.delay_between_calls = delay_between_calls  # Delay in seconds
+        self.delay_between_calls = delay_between_calls
 
     async def _async_update_data(self):
         """Fetch data from API."""
@@ -64,26 +65,22 @@ class PhilipsPetsSeriesDataUpdateCoordinator(DataUpdateCoordinator):
             events_by_home_and_type = {}
             settings = {}
             event_types = Event.get_event_types()
+            now = dt_util.now()
+            from_date = now.replace(hour=0, minute=0, second=0, microsecond=0)
+            to_date = from_date + timedelta(days=1)
 
             for home in homes:
-                # Fetch devices for the home
                 home_devices = await self._client.get_devices(home)
                 devices.extend(home_devices)
                 _LOGGER.debug(f"Fetched devices for home {home.id}")
 
-                # Wait to respect rate limits
                 await asyncio.sleep(self.delay_between_calls)
 
                 for event_type in event_types:
-                    # Fetch events for each event type separately
                     home_events = await self._client.events.get_events(
                         home,
-                        from_date=dt.datetime(
-                            2024, 1, 1, tzinfo=dt.timezone(dt.timedelta(hours=2))
-                        ),
-                        to_date=dt.datetime(
-                            2100, 1, 1, tzinfo=dt.timezone(dt.timedelta(hours=2))
-                        ),
+                        from_date=from_date,
+                        to_date=to_date,
                         types=str(event_type),
                     )
                     event_type_str = (
@@ -103,16 +100,13 @@ class PhilipsPetsSeriesDataUpdateCoordinator(DataUpdateCoordinator):
                     )
                     _LOGGER.debug(f"Number of events: {len(home_events)}")
 
-                    # Wait to respect rate limits
                     await asyncio.sleep(self.delay_between_calls)
 
-                # Fetch settings for each device
                 for device in home_devices:
                     device_settings = await self._client.get_settings(home, device.id)
                     settings[device.id] = device_settings
                     _LOGGER.debug(f"Fetched settings for device {device.id}")
 
-                    # get Tuya status asynchronously
                     if self._client.tuya_client:
                         tuya_status = await asyncio.to_thread(
                             self._client.get_tuya_status
@@ -121,23 +115,18 @@ class PhilipsPetsSeriesDataUpdateCoordinator(DataUpdateCoordinator):
                     else:
                         settings[device.id]["tuya_status"] = None
 
-                    # Wait to respect rate limits
                     await asyncio.sleep(self.delay_between_calls)
-                # Fetch meals for each home
                 home_meals = await self._client.meals.get_meals(home)
                 meals.extend(home_meals)
                 _LOGGER.debug(f"Fetched meals for home {home.id}")
 
                 base_data = {}
-                # Fetch Tuya status asynchronously
-                # if tuya_credentials are provided
                 if self._client.tuya_client:
                     tuya_status = await asyncio.to_thread(self._client.get_tuya_status)
                     base_data["tuya_status"] = tuya_status
                 else:
                     base_data["tuya_status"] = None
 
-                # Wait to respect rate limits
                 await asyncio.sleep(self.delay_between_calls)
 
             return {
@@ -160,7 +149,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     access_token = data.get("access_token")
     refresh_token = data.get("refresh_token")
 
-    # Extract Tuya credentials if provided
     tuya_credentials = None
     if all(
         key in data and data[key]
@@ -193,7 +181,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     coordinator = PhilipsPetsSeriesDataUpdateCoordinator(
         hass,
         client,
-        delay_between_calls=0.5,  # Adjust this value based on API rate limits
+        delay_between_calls=0.5,
     )
 
     await coordinator.async_config_entry_first_refresh()
@@ -204,7 +192,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         "coordinator": coordinator,
     }
 
-    # Forward all platforms at once
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     return True
 
