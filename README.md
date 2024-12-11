@@ -42,13 +42,13 @@ This integration uses OAuth2 tokens (access_token and refresh_token) to authenti
 
 1. **Login via Web Interface**:
     - Navigate to [PetsSeries Appliance Login](https://www.home.id/find-appliance).
-    - Select a PetsSeries product (Starts with PAW) and log in with your credentials.
+    - Select a PetsSeries product (Search for "PAW"), click on "register your device" and log in with your credentials.
 
 2. **Retrieve Tokens**:
     - After logging in, you will be redirected to a "Thanks for your purchase" screen.
     - Open your browser's developer tools (usually by pressing F12 or Ctrl+Shift+I).
     - Go to the Application tab and inspect the cookies.
-    - Locate and copy the `cc-access-token` and `cc-refresh-token` from the cookies.
+    - Locate and copy the values from the `cc-access-token` and `cc-refresh-token` feild from the cookies.
 
 3. **Provide Tokens to the Integration**:
     - You can provide the `access_token` and `refresh_token` when setting up the integration.
