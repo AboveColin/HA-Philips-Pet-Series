@@ -48,7 +48,7 @@ This integration uses OAuth2 tokens (access_token and refresh_token) to authenti
     - After logging in, you will be redirected to a "Thanks for your purchase" screen.
     - Open your browser's developer tools (usually by pressing F12 or Ctrl+Shift+I).
     - Go to the Application tab and inspect the cookies.
-    - Locate and copy the values from the `cc-access-token` and `cc-refresh-token` feild from the cookies.
+    - Locate and copy the values from the `cc-access-token` and `cc-refresh-token` field from the cookies.
 
 3. **Provide Tokens to the Integration**:
     - You can provide the `access_token` and `refresh_token` when setting up the integration.
