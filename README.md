@@ -41,11 +41,12 @@ This integration uses OAuth2 tokens (access_token and refresh_token) to authenti
 ### Obtaining Tokens
 
 1. **Login via Web Interface**:
-    - Navigate to [PetsSeries Appliance Login](https://www.home.id/find-appliance).
-    - Select a PetsSeries product (Search for "PAW"), click on "register your device" and log in with your credentials.
+Navigate to [Philips Home ID Login](https://www.accounts.home.id/authui/client/login) page and log in with the credentials used to manage your device.
+
+If you have not registered your device yet you can do this through either the PhilipsPetSeries app(s) or find your device on the [Philips Home Support](https://www.home.id/support) page and register it with a new account.
 
 2. **Retrieve Tokens**:
-    - After logging in, you will be redirected to a "Thanks for your purchase" screen.
+    - After logging in, you will be redirected to your account dashboard.
     - Open your browser's developer tools (usually by pressing F12 or Ctrl+Shift+I).
     - Go to the Application tab and inspect the cookies.
     - Locate and copy the values from the `cc-access-token` and `cc-refresh-token` field from the cookies.
