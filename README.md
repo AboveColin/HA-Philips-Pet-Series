@@ -9,7 +9,8 @@ This is a Home Assistant integration for the Philips Pet Series devices. It allo
 - **Numbers**: Adjust numerical settings like portion sizes.
 - **Calendars**: View meal schedules.
 
-**Note**: Camera support is not yet implemented.
+> [!NOTE]
+> Camera support is not yet implemented.
 
 <img width="323" alt="Screenshot 2024-10-11 at 17 43 06" src="https://github.com/user-attachments/assets/2a7b5536-1952-40d3-8bea-b214e145f9d3">
 <img width="326" alt="Screenshot 2024-10-11 at 17 43 25" src="https://github.com/user-attachments/assets/fe4101cd-f250-4f45-8af6-bcec2c8b77b4">
@@ -40,12 +41,14 @@ This integration uses OAuth2 tokens (access_token and refresh_token) to authenti
 
 ### Obtaining Tokens
 
-1. **Login via Web Interface**:
-    - Navigate to [PetsSeries Appliance Login](https://www.home.id/find-appliance).
-    - Select a PetsSeries product (Search for "PAW"), click on "register your device" and log in with your credentials.
+1. **Login via Web Interface**:  
+Navigate to the [Philips Home ID Login](https://www.accounts.home.id/authui/client/login) page and log in with the credentials used to manage your device.
+
+> [!TIP]
+> If you have not registered your device yet, you can do this through either the PhilipsPetSeries app(s) or find your device on the [Philips Home Support](https://www.home.id/support) page and register it with a new account.
 
 2. **Retrieve Tokens**:
-    - After logging in, you will be redirected to a "Thanks for your purchase" screen.
+    - After logging in, you will be redirected to your account dashboard.
     - Open your browser's developer tools (usually by pressing F12 or Ctrl+Shift+I).
     - Go to the Application tab and inspect the cookies.
     - Locate and copy the values from the `cc-access-token` and `cc-refresh-token` field from the cookies.
