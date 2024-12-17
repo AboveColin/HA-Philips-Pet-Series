@@ -40,10 +40,12 @@ This integration uses OAuth2 tokens (access_token and refresh_token) to authenti
 
 ### Obtaining Tokens
 
-1. **Login via Web Interface**:
-Navigate to [Philips Home ID Login](https://www.accounts.home.id/authui/client/login) page and log in with the credentials used to manage your device.
+1. **Login via Web Interface**:  
 
-If you have not registered your device yet you can do this through either the PhilipsPetSeries app(s) or find your device on the [Philips Home Support](https://www.home.id/support) page and register it with a new account.
+Navigate to the [Philips Home ID Login](https://www.accounts.home.id/authui/client/login) page and log in with the credentials used to manage your device.
+
+> [!TIP]
+> If you have not registered your device yet, you can do this through either the PhilipsPetSeries app(s) or find your device on the [Philips Home Support](https://www.home.id/support) page and register it with a new account.
 
 2. **Retrieve Tokens**:
     - After logging in, you will be redirected to your account dashboard.
