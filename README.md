@@ -42,7 +42,6 @@ This integration uses OAuth2 tokens (access_token and refresh_token) to authenti
 ### Obtaining Tokens
 
 1. **Login via Web Interface**:  
-
 Navigate to the [Philips Home ID Login](https://www.accounts.home.id/authui/client/login) page and log in with the credentials used to manage your device.
 
 > [!TIP]
