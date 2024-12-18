@@ -176,7 +176,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             self.hass.config_entries.async_update_entry(
                 self._entry, data=updated_data
             )
-            return self.async_create_entry(title=info["title"], data=updated_data)
+            return self.async_abort(reason="reauth_successful")
 
         return self.async_show_form(
             step_id="reauth_confirm",
