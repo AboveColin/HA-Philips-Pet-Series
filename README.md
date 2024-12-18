@@ -65,12 +65,15 @@ The integration also supports Tuya devices, which is required for controlling fe
 
 - **client_id**: This can be found in the PetsSeries app's device screen.
 - **ip**: The IP address of the device.
-- **local_key**: You can extract this from the device using a rooted phone and running frida-trace as shown below:
+- **local_key**: You can extract this from the device using a rooted (Android) phone and running frida-trace as shown below:
     
 ```bash 
-frida-trace -H 127.0.0.1:27042 --decorate -j '*!*encodeString*' -f com.versuni.petsseries -o <a folder location to save frida_trace outputs to a local file>
+frida-trace -U --decorate \
+  -j '*!*encodeString*' \
+  -f com.versuni.nbx.petsseries \
+  -o output.txt
 ```
-Then, search for the localKey in the logs.
+Then, search for the localKey in the output.txt
 
 ## Contributing
 
