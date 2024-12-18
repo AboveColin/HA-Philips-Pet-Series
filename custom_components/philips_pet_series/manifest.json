@@ -7,6 +7,6 @@
   "documentation": "https://github.com/abovecolin/HA-Philips-Pet-Series",
   "iot_class": "cloud_polling",
   "issue_tracker": "https://github.com/AboveColin/HA-Philips-Pet-Series/issues",
-  "requirements": ["petsseries==0.2.1"],
-  "version": "0.1.5"
+  "requirements": ["petsseries==0.2.3"],
+  "version": "0.1.6"
 }
