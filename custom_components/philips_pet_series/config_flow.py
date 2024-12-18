@@ -61,12 +61,12 @@ async def validate_input(hass: HomeAssistant, data: Dict[str, Any]) -> Dict[str,
         }
 
     client = PetsSeriesClient(
-        access_token=access_token,
-        refresh_token=refresh_token,
+        token_file="tokens.json",
         tuya_credentials=tuya_credentials,
     )
 
     try:
+        await client.auth.save_tokens(access_token, refresh_token)
         await client.initialize()
         user = await client.get_user_info()
     except AuthError as err:
@@ -127,42 +127,37 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             },
         )
 
-    async def async_step_reauth(self, entry_data: Dict[str, Any]) -> FlowResult:
+    async def async_step_reauth(self, flow_input: dict) -> FlowResult:
         """Handle configuration reauthentication."""
-        self._entry = entry_data
+        entry_id = self.context.get("entry_id")
+        if not entry_id:
+            return self.async_abort(reason="unknown_entry")
+
+        entry = self.hass.config_entries.async_get_entry(entry_id)
+        if not entry:
+            return self.async_abort(reason="unknown_entry")
+
+        self._entry = entry
+
+        _LOGGER.debug("Starting reauthentication flow for entry_id: %s", entry_id)
         return await self.async_step_reauth_confirm()
 
     async def async_step_reauth_confirm(
         self, user_input: Optional[Dict[str, Any]] = None
     ) -> FlowResult:
-        """Handle the re-authentication confirmation."""
+        """Handle the re-authentication confirmation and collect new credentials."""
         if user_input is None:
             return self.async_show_form(
                 step_id="reauth_confirm",
                 description_placeholders={
                     "login_url": "https://www.home.id/find-appliance"
                 },
-                data_schema=vol.Schema({}),
-            )
-
-        return await self.async_step_reauth_update()
-
-    async def async_step_reauth_update(
-        self, user_input: Optional[Dict[str, Any]] = None
-    ) -> FlowResult:
-        """Prompt the user to re-enter credentials during re-authentication."""
-        if user_input is None:
-            return self.async_show_form(
-                step_id="reauth_update",
                 data_schema=STEP_REAUTH_DATA_SCHEMA,
-                description_placeholders={
-                    "login_url": "https://www.home.id/find-appliance"
-                },
             )
 
         errors = {}
 
-        updated_data = self._entry.copy()
+        updated_data = self._entry.data.copy()
         updated_data[CONF_ACCESS_TOKEN] = user_input[CONF_ACCESS_TOKEN]
         updated_data[CONF_REFRESH_TOKEN] = user_input[CONF_REFRESH_TOKEN]
 
@@ -184,7 +179,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             return self.async_create_entry(title=info["title"], data=updated_data)
 
         return self.async_show_form(
-            step_id="reauth_update",
+            step_id="reauth_confirm",
             data_schema=STEP_REAUTH_DATA_SCHEMA,
             errors=errors,
             description_placeholders={
