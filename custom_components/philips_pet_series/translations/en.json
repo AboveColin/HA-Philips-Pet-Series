@@ -7,16 +7,16 @@
           "data": {
             "access_token": "Access Token",
             "refresh_token": "Refresh Token",
-            "tuya_client_id": "Tuya Client ID",
-            "tuya_ip": "Tuya IP Address",
-            "tuya_local_key": "Tuya Local Key"
+            "tuya_client_id": "Pet Feeder Client ID",
+            "tuya_ip": "Pet Feeder IP Address",
+            "tuya_local_key": "Pet Feeder Local Key"
           },
           "data_description": {
             "access_token": "Enter your access token.",
             "refresh_token": "Enter your refresh token.",
-            "tuya_client_id": "Enter your Tuya Client ID (optional).",
-            "tuya_ip": "Enter your Tuya IP Address (optional).",
-            "tuya_local_key": "Enter your Tuya Local Key (optional)."
+            "tuya_client_id": "Enter your Pet Feeder Client ID (optional).",
+            "tuya_ip": "Enter your Pet Feeder IP Address (optional).",
+            "tuya_local_key": "Enter your Pet Feeder Local Key (optional)."
           }
         },
         "reauth_confirm": {
