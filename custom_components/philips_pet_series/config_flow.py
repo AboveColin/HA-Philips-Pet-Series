@@ -43,8 +43,6 @@ STEP_REAUTH_DATA_SCHEMA = vol.Schema(
 
 
 async def validate_input(hass: HomeAssistant, data: Dict[str, Any]) -> Dict[str, Any]:
-    """Validate the user input allows us to connect."""
-
     access_token = data[CONF_ACCESS_TOKEN]
     refresh_token = data[CONF_REFRESH_TOKEN]
     tuya_credentials = None
@@ -84,15 +82,12 @@ async def validate_input(hass: HomeAssistant, data: Dict[str, Any]) -> Dict[str,
 
 
 class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
-    """Handle a config flow for Philips Pets Series."""
-
     VERSION = 2
     CONNECTION_CLASS = config_entries.CONN_CLASS_CLOUD_POLL
 
     async def async_step_user(
         self, user_input: Optional[Dict[str, Any]] = None
     ) -> FlowResult:
-        """Handle the initial step."""
         if user_input is None:
             return self.async_show_form(
                 step_id="user",
@@ -128,7 +123,6 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         )
 
     async def async_step_reauth(self, flow_input: dict) -> FlowResult:
-        """Handle configuration reauthentication."""
         entry_id = self.context.get("entry_id")
         if not entry_id:
             return self.async_abort(reason="unknown_entry")
@@ -187,26 +181,46 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             },
         )
 
+    async def async_step_reconfigure(
+        self, user_input: Optional[Dict[str, Any]] = None
+    ) -> FlowResult:
+        if user_input is None:
+            return self.async_show_form(
+                step_id="reconfigure",
+                data_schema=STEP_USER_DATA_SCHEMA,
+                description_placeholders={
+                    "login_url": "https://www.home.id/find-appliance"
+                },
+            )
+
+        errors = {}
+
+        try:
+            info = await validate_input(self.hass, user_input)
+        except CannotConnect:
+            errors["base"] = "cannot_connect"
+        except InvalidAuth:
+            errors["base"] = "invalid_auth"
+        except InvalidTuyaSupport:
+            errors["base"] = "invalid_tuya_support"
+        except Exception:  # pylint: disable=broad-except
+            _LOGGER.exception("Unexpected exception")
+            errors["base"] = "unknown"
+        else:
+            self.hass.config_entries.async_update_entry(self.entry, data=user_input)
+            return self.async_create_entry(title=info["title"], data=user_input)
+
 
 class CannotConnect(HomeAssistantError):
-    """Error to indicate we cannot connect."""
-
     def __init__(self, message: str = "Cannot connect") -> None:
-        """Initialize the error."""
         super().__init__(message)
 
 
 class InvalidAuth(HomeAssistantError):
-    """Error to indicate there is invalid auth."""
-
     def __init__(self, message: str = "Invalid auth") -> None:
-        """Initialize the error."""
         super().__init__(message)
 
 
 class InvalidTuyaSupport(HomeAssistantError):
-    """Error to indicate Tuya support is invalid or dependencies are missing."""
-
     def __init__(self, message: str = "Invalid Tuya support") -> None:
-        """Initialize the error."""
         super().__init__(message)
