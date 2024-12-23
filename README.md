@@ -4,17 +4,13 @@ This is a Home Assistant integration for the Philips Pet Series devices. It allo
 
 ## Features
 
-- **Switches**: Control various switches on your Philips Pet Series devices.
-- **Sensors**: Monitor different sensors, including event sensors and Tuya status sensors.
-- **Numbers**: Adjust numerical settings like portion sizes.
-- **Calendars**: View meal schedules.
-
-> [!NOTE]
-> Camera support is not yet implemented.
 
 <img width="323" alt="Screenshot 2024-10-11 at 17 43 06" src="https://github.com/user-attachments/assets/2a7b5536-1952-40d3-8bea-b214e145f9d3">
 <img width="326" alt="Screenshot 2024-10-11 at 17 43 25" src="https://github.com/user-attachments/assets/fe4101cd-f250-4f45-8af6-bcec2c8b77b4">
 <img width="329" alt="Screenshot 2024-10-11 at 17 42 48" src="https://github.com/user-attachments/assets/eed2888f-101f-473c-a706-47409116e1ef">
+
+> [!NOTE]
+> Camera support is not yet implemented.
 
 ## Installation
 
@@ -37,7 +33,7 @@ This integration can be installed via [HACS](https://hacs.xyz/).
 
 ## Authentication
 
-This integration uses OAuth2 tokens (access_token and refresh_token) to authenticate with the PetsSeries API. Follow the steps below to obtain and set up your tokens.
+This integration uses OAuth2 tokens (an Access Token and Refresh Token) to authenticate with the PetsSeries API. Follow the steps below to obtain and set up your tokens.
 
 ### Obtaining Tokens
 
@@ -59,21 +55,43 @@ This integration uses OAuth2 tokens (access_token and refresh_token) to authenti
 
 After the first run, the tokens will be saved automatically, and you won't need to provide them again unless they are invalidated.
 
-## Tuya Integration (Optional)
+## Extra Functionality (Optional)
 
-The integration also supports Tuya devices, which is required for controlling features such as food dispensers. To enable this, you will need to provide the following:
+For the following extra functionalities:
+- Configuration of settings for the camera
+- The functionality to send a feed command
+- Set the portion size
 
-- **client_id**: This can be found in the PetsSeries app's device screen.
-- **ip**: The IP address of the device.
-- **local_key**: You can extract this from the device using a rooted (Android) phone and running frida-trace as shown below:
-    
-```bash 
+Some additional steps are required. Unfortunately, a better approach hasn’t been found yet. Here’s what is needed:
+
+### Required Information:
+- **Pet Feeder Client ID**: This can be found in the PetsSeries app's device screen.
+  - Navigate to: **App Home Screen > Your Pet Feeder > Settings > Device ID**.
+- **Pet Feeder IP Address**: The IP address of the device.
+- **Pet Feeder Local Key**: See below for extraction instructions.
+
+### Extracting the Local Key:
+Obtaining the Local Key requires some additional effort. You can extract it using a rooted Android phone and running `frida-trace` as shown below.
+
+#### Recommended Tool:
+Use the [MagiskFrida](https://github.com/AeonLucid/MagiskFrida) module to auto-start Frida on boot.
+
+#### Extraction Steps:
+```bash
 frida-trace -U --decorate \
   -j '*!*encodeString*' \
   -f com.versuni.nbx.petsseries \
   -o output.txt
 ```
-Then, search for the localKey in the output.txt
+
+Once you’ve run the above command, search for the `localKey` in the `output.txt` file. For example:
+```text
+"localKey":"FceXXX]+$7}9Zl."
+```
+In this case, the `LocalKey` is:
+```text
+FceXXX]+$7}9Zl.
+```
 
 ## Contributing
 
