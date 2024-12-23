@@ -93,6 +93,7 @@ In this case, the `LocalKey` is:
 FceXXX]+$7}9Zl.
 ```
 
+It might also be possible to obtain a key by registering the device via the tuya app and obtaining the key in the developer console on the Tuya website. But I haven't looked into that method myself yet.
 ## Contributing
 
 Contributions are welcome! Please open an issue or submit a pull request on the [GitHub repository](https://github.com/abovecolin/HA-Philips-Pet-Series).
