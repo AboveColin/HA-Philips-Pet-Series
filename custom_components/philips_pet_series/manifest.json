@@ -1,12 +1,16 @@
 {
   "domain": "philips_pet_series",
   "name": "Philips Pet Series",
-  "codeowners": ["@abovecolin"],
+  "codeowners": [
+    "@abovecolin"
+  ],
   "config_flow": true,
   "dependencies": [],
   "documentation": "https://github.com/abovecolin/HA-Philips-Pet-Series",
   "iot_class": "cloud_polling",
   "issue_tracker": "https://github.com/AboveColin/HA-Philips-Pet-Series/issues",
-  "requirements": ["petsseries==0.2.3"],
-  "version": "0.1.6"
+  "requirements": [
+    "petsseries==0.2.6"
+  ],
+  "version": "0.1.7"
 }
