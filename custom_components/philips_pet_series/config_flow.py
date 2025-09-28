@@ -3,23 +3,22 @@ from __future__ import annotations
 import logging
 from typing import Any, Dict, Optional
 
-import voluptuous as vol
-
-from homeassistant import config_entries
-from homeassistant.core import HomeAssistant
-from homeassistant.exceptions import HomeAssistantError
-from homeassistant.data_entry_flow import FlowResult
-
-from petsseries import PetsSeriesClient
-from petsseries.auth import AuthError
+import voluptuous as vol  # type: ignore[import-not-found]
+from homeassistant import config_entries  # type: ignore[import-not-found]
+from homeassistant.core import HomeAssistant  # type: ignore[import-not-found]
+from homeassistant.data_entry_flow import FlowResult  # type: ignore[import-not-found]
+from homeassistant.exceptions import (
+    HomeAssistantError,  # type: ignore[import-not-found]
+)
+from petsseries.api import PetsSeriesClient  # type: ignore[import-not-found]
 
 from .const import (
-    DOMAIN,
     CONF_ACCESS_TOKEN,
     CONF_REFRESH_TOKEN,
     CONF_TUYA_CLIENT_ID,
     CONF_TUYA_IP,
     CONF_TUYA_LOCAL_KEY,
+    DOMAIN,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -43,6 +42,8 @@ STEP_REAUTH_DATA_SCHEMA = vol.Schema(
 
 
 async def validate_input(hass: HomeAssistant, data: Dict[str, Any]) -> Dict[str, Any]:
+    from petsseries.auth import AuthError  # type: ignore[import-not-found]
+
     access_token = data[CONF_ACCESS_TOKEN]
     refresh_token = data[CONF_REFRESH_TOKEN]
     tuya_credentials = None
@@ -81,7 +82,7 @@ async def validate_input(hass: HomeAssistant, data: Dict[str, Any]) -> Dict[str,
     return {"title": f"Philips Pets Series ({user.name})"}
 
 
-class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
+class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):  # type: ignore[call-arg]
     VERSION = 2
     CONNECTION_CLASS = config_entries.CONN_CLASS_CLOUD_POLL
 
@@ -156,7 +157,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         updated_data[CONF_REFRESH_TOKEN] = user_input[CONF_REFRESH_TOKEN]
 
         try:
-            info = await validate_input(self.hass, updated_data)
+            await validate_input(self.hass, updated_data)
         except CannotConnect:
             errors["base"] = "cannot_connect"
         except InvalidAuth:
@@ -167,9 +168,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             _LOGGER.exception("Unexpected exception")
             errors["base"] = "unknown"
         else:
-            self.hass.config_entries.async_update_entry(
-                self._entry, data=updated_data
-            )
+            self.hass.config_entries.async_update_entry(self._entry, data=updated_data)
             return self.async_abort(reason="reauth_successful")
 
         return self.async_show_form(
@@ -196,7 +195,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         errors = {}
 
         try:
-            info = await validate_input(self.hass, user_input)
+            await validate_input(self.hass, user_input)
         except CannotConnect:
             errors["base"] = "cannot_connect"
         except InvalidAuth:
@@ -207,8 +206,27 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             _LOGGER.exception("Unexpected exception")
             errors["base"] = "unknown"
         else:
-            self.hass.config_entries.async_update_entry(self.entry, data=user_input)
-            return self.async_create_entry(title=info["title"], data=user_input)
+            # Update existing entry instead of creating a new one
+            entry_id = self.context.get("entry_id")
+            if not entry_id:
+                return self.async_abort(reason="unknown_entry")
+
+            entry = self.hass.config_entries.async_get_entry(entry_id)
+            if not entry:
+                return self.async_abort(reason="unknown_entry")
+
+            self.hass.config_entries.async_update_entry(entry, data=user_input)
+            return self.async_abort(reason="reconfigure_successful")
+
+        # If we reach here, show the form again with validation errors
+        return self.async_show_form(
+            step_id="reconfigure",
+            data_schema=STEP_USER_DATA_SCHEMA,
+            errors=errors,
+            description_placeholders={
+                "login_url": "https://www.home.id/find-appliance"
+            },
+        )
 
 
 class CannotConnect(HomeAssistantError):
