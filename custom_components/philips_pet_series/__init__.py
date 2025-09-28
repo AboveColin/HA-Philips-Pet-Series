@@ -8,8 +8,8 @@ from datetime import timedelta
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from homeassistant.exceptions import ConfigEntryAuthFailed
+from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from homeassistant.util import dt as dt_util
 
 _LOGGER = logging.getLogger(__name__)
@@ -20,8 +20,9 @@ except ImportError as e:
     _LOGGER.error("Failed to import petsseries module: %s", e)
     raise
 
-from petsseries import PetsSeriesClient
 from petsseries.models import Event
+
+from petsseries import PetsSeriesClient
 
 from .const import DOMAIN
 
