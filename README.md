@@ -71,29 +71,55 @@ Some additional steps are required. Unfortunately, a better approach hasn’t be
 - **Pet Feeder Local Key**: See below for extraction instructions.
 
 ### Extracting the Local Key:
-Obtaining the Local Key requires some additional effort. You can extract it using a rooted Android phone and running `frida-trace` as shown below.
+Obtaining the Local Key requires some additional effort. You can extract it using Frida on a rooted Android device to intercept the localKey at runtime.
 
-#### Recommended Tool:
-Use the [MagiskFrida](https://github.com/AeonLucid/MagiskFrida) module to auto-start Frida on boot.
+#### Method 1: Frida Interception (Recommended for Advanced Users)
 
-#### Extraction Steps:
-```bash
-frida-trace -U --decorate \
-  -j '*!*encodeString*' \
-  -f com.versuni.nbx.petsseries \
-  -o output.txt
-```
+**Prerequisites:**
+- A rooted Android device
+- USB debugging enabled
+- Frida installed on your computer and Frida server on your Android device
 
-Once you’ve run the above command, search for the `localKey` in the `output.txt` file. For example:
-```text
-"localKey":"FceXXX]+$7}9Zl."
-```
-In this case, the `LocalKey` is:
-```text
-FceXXX]+$7}9Zl.
-```
+**Recommended Tool:**
+Use the [MagiskFrida](https://github.com/AeonLucid/MagiskFrida) module to auto-start Frida on boot, or manually install Frida server on your rooted Android device.
 
-It might also be possible to obtain a key by registering the device via the tuya app and obtaining the key in the developer console on the Tuya website. But I haven't looked into that method myself yet.
+**Extraction Steps:**
+
+1. **Connect your Android device** via USB and ensure USB debugging is enabled.
+
+2. **Install Frida server** on your Android device (if not using MagiskFrida):
+   ```bash
+   # Download frida-server for your Android architecture
+   # Push to device and run:
+   adb push frida-server /data/local/tmp/
+   adb shell "chmod 755 /data/local/tmp/frida-server"
+   adb shell "/data/local/tmp/frida-server &"
+   ```
+
+3. **Run Frida trace** to intercept method calls:
+   ```bash
+   frida-trace -U --decorate \
+     -j '*!*encodeString*' \
+     -f com.versuni.nbx.petsseries \
+     -o output.txt
+   ```
+
+4. **Open the Philips Pet Series app** on your Android device and navigate to your pet feeder device. This will trigger the app to load device information including the localKey.
+
+5. **Search for localKey** in the `output.txt` file:
+   ```bash
+   grep -i "localkey" output.txt
+   ```
+   
+   You'll find a line like:
+   ```json
+   "localKey":"FceXXX]+$7}9Zl."
+   ```
+   
+   The value between the quotes (e.g., `FceXXX]+$7}9Zl.`) is your Local Key.
+
+**Note:** The Frida trace will capture various method calls. The localKey typically appears in JSON responses or encoded strings. Look for patterns like `"localKey":` or `localKey=` in the output.
+
 ## Contributing
 
 Contributions are welcome! Please open an issue or submit a pull request on the [GitHub repository](https://github.com/abovecolin/HA-Philips-Pet-Series).

@@ -27,6 +27,11 @@ async def async_setup_entry(
         for device in coordinator.data["devices"]:
             # Assuming you want one feed button per device
             buttons.append(PhilipsPetsSeriesFeedButton(coordinator, client, home, device))
+            
+            # Check for filter settings to add Reset Filter button
+            full_settings = coordinator.data.get("full_settings", {}).get(device.id)
+            if full_settings and (full_settings.filter_replacement_time or full_settings.filter_application_time):
+                buttons.append(PhilipsPetsSeriesResetFilterButton(coordinator, client, home, device))
 
     async_add_entities(buttons)
 
@@ -52,3 +57,26 @@ class PhilipsPetsSeriesFeedButton(PhilipsPetsSeriesEntity, ButtonEntity):
             await self.coordinator.async_request_refresh()
         except Exception as e:
             _LOGGER.error(f"Failed to execute feed_num for device {self._device.id}: {e}")
+
+
+class PhilipsPetsSeriesResetFilterButton(PhilipsPetsSeriesEntity, ButtonEntity):
+    """Representation of a Philips Pets Series reset filter button."""
+
+    def __init__(self, coordinator, client, home, device):
+        """Initialize the reset filter button."""
+        super().__init__(coordinator, device, home)
+        self._client = client
+        self._attr_unique_id = f"{device.id}_reset_filter_button"
+        self._attr_name = f"Reset Filter {device.name}"
+        self._attr_icon = "mdi:filter-remove"
+
+    async def async_press(self) -> None:
+        """Handle the button press to reset the filter."""
+        _LOGGER.info(f"Reset filter button pressed for device {self._device.id}")
+        try:
+            await self._client.devices_manager.reset_filter(self._home, self._device)
+            _LOGGER.info(f"Successfully reset filter for device {self._device.id}")
+            await self.coordinator.async_request_refresh()
+        except Exception as e:
+            _LOGGER.error(f"Failed to reset filter for device {self._device.id}: {e}")
+

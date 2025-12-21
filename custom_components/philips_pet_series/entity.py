@@ -21,14 +21,19 @@ class PhilipsPetsSeriesEntity(CoordinatorEntity):
     @property
     def device_info(self):
         """Return device information about this entity."""
+        # Try to find firmware version and model
+        sw_version = self._device.product_id
+        model = self._device.product_ctn
+        
+        # If we have tuya status, we might find version there 
+        # (datapoint logic required but keeping broad here)
+        
         return DeviceInfo(
             identifiers={(DOMAIN, self._device.id)},
             name=self._device.name,
             manufacturer="Philips",
-            model=self._device.product_ctn,
-            sw_version=self._device.product_id,
-            via_device=(DOMAIN, self._home.id),
-            hw_version=self._device.product_ctn,
+            model=model,
+            sw_version=sw_version,
         )
 
     @property
