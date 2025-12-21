@@ -1,0 +1,60 @@
+create_home:
+  name: Create Home
+  description: Create a new home in the Philips Pet Series cloud.
+  fields:
+    name:
+      name: Name
+      description: The name of the new home.
+      required: true
+      selector:
+        text:
+
+send_home_invite:
+  name: Send Home Invite
+  description: Send an invitation to join a home.
+  fields:
+    home_id:
+      name: Home
+      description: The home to invite someone to.
+      required: true
+      selector:
+        select:
+          options: []  # This will be dynamic if possible, or user inputs ID
+    email:
+      name: Email
+      description: The email address of the person to invite.
+      required: true
+      selector:
+        text:
+    label:
+      name: Label
+      description: The label/name for the invited person (e.g. "Mom").
+      required: true
+      selector:
+        text:
+    role:
+      name: Role
+      description: The role to assign (MEMBER or ADMIN).
+      default: MEMBER
+      selector:
+        select:
+          options:
+            - MEMBER
+            - ADMIN
+
+add_device:
+  name: Add Device
+  description: Add a new device to a home.
+  fields:
+    home_id:
+      name: Home
+      description: The home to add the device to.
+      required: true
+      selector:
+        text:
+    product_ctn:
+      name: Product CTN
+      description: The product CTN (e.g. PAW5320).
+      required: true
+      selector:
+        text:

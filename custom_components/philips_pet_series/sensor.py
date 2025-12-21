@@ -4,6 +4,7 @@ from homeassistant.components.sensor import (
 )
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from homeassistant.util import dt as dt_util
@@ -37,16 +38,16 @@ async def async_setup_entry(
         if isinstance(event_type, str):
             event_types_str.append(event_type)
         elif hasattr(event_type, "value"):
-            event_types_str.append(event_type.value)
+            event_types_str.append(str(event_type.value))
         else:
             event_types_str.append(str(event_type))
 
     sensors = []
     for home in coordinator.data.get("homes", []):
         for device in coordinator.data.get("devices", []):
-            for event_type in event_types_str:
+            for event_type_str in event_types_str:
                 sensors.append(
-                    PhilipsPetsSeriesEventSensor(coordinator, home, device, event_type)
+                    PhilipsPetsSeriesEventSensor(coordinator, home, device, event_type_str)
                 )
 
         for meal in meals:
@@ -61,6 +62,13 @@ async def async_setup_entry(
                     PhilipsPetsSeriesTuyaStatusSensor(coordinator, home, device, client)
                 )
 
+    # Add Invites Sensor
+    for home in coordinator.data.get("homes", []):
+        sensors.append(PhilipsPetsSeriesInvitesSensor(coordinator, home))
+
+    # Add Discovery Sensor
+    sensors.append(PhilipsPetsSeriesDiscoverySensor(coordinator))
+
     async_add_entities(sensors)
 
 
@@ -72,18 +80,11 @@ class PhilipsPetsSeriesEventSensor(PhilipsPetsSeriesEntity, SensorEntity):
         coordinator: PhilipsPetsSeriesDataUpdateCoordinator,
         home,
         device,
-        event_type,
+        event_type: str,
     ):
         """Initialize the sensor."""
         super().__init__(coordinator, device, home)
-        if isinstance(event_type, str):
-            event_type_str = event_type
-        elif hasattr(event_type, "value"):
-            event_type_str = event_type.value
-        else:
-            event_type_str = str(event_type)
-
-        self._event_type = event_type_str
+        self._event_type = event_type
         self._attr_unique_id = f"{device.id}_last_{self._event_type}_event"
 
         self._attr_name = f"Last {self._event_type.replace('eventtype.', ' ').replace('_', ' ').title()} Event"
@@ -190,6 +191,37 @@ class PhilipsPetsSeriesMealSensor(CoordinatorEntity, SensorEntity):
         self._attr_icon = "mdi:food"
 
     @property
+    def device_info(self):
+        """Return device information."""
+        # Find the device this meal belongs to
+        device = next(
+            (d for d in self.coordinator.data.get("devices", []) if d.id == self.meal.device_id),
+            None
+        )
+        
+        identifiers = {(DOMAIN, self.meal.device_id)}
+        
+        # If we found the device, we can try to find the home it belongs to for via_device
+        # But efficiently, we just need to link to the device ID.
+        # Home Assistant links entities to devices via identifiers.
+        
+        if device:
+             return DeviceInfo(
+                identifiers=identifiers,
+                name=device.name,
+                manufacturer="Philips",
+                model=device.product_ctn,
+                sw_version=device.product_id,
+                # via_device is optional if we share identifiers with the main device entity
+            )
+        
+        return DeviceInfo(
+            identifiers=identifiers,
+            name=f"Device {self.meal.device_id}",
+            manufacturer="Philips",
+        )
+
+    @property
     def state(self):
         """Return the next scheduled time of the meal."""
         return self.meal.feed_time
@@ -203,6 +235,46 @@ class PhilipsPetsSeriesMealSensor(CoordinatorEntity, SensorEntity):
             "device_id": self.meal.device_id,
             "enabled": self.meal.enabled,
         }
+
+
+class PhilipsPetsSeriesInvitesSensor(CoordinatorEntity, SensorEntity):
+    """Representation of a Philips Pets Series Invites Sensor."""
+
+    def __init__(self, coordinator: PhilipsPetsSeriesDataUpdateCoordinator, home):
+        """Initialize the invites sensor."""
+        super().__init__(coordinator)
+        self.home = home
+        self._attr_unique_id = f"home_{home.id}_invites"
+        self._attr_name = f"{home.name} Invites"
+        self._attr_icon = "mdi:account-plus"
+
+    @property
+    def state(self):
+        """Return the number of invites."""
+        invites = self.coordinator.data.get("invites", {}).get(self.home.id, [])
+        return len(invites)
+
+    @property
+    def extra_state_attributes(self):
+        """Return extra attributes."""
+        invites = self.coordinator.data.get("invites", {}).get(self.home.id, [])
+        return {
+            "invites": [
+                {
+                    "email": i.email,
+                    "label": i.label,
+                    "role": i.role.value,
+                    "status": i.status.value,
+                    "token": i.id, # Using ID as token or ID
+                }
+                for i in invites
+            ]
+        }
+
+    @property
+    def available(self):
+        """Return if the sensor is available."""
+        return super().available and self.coordinator.last_update_success
 
 
 class PhilipsPetsSeriesTuyaStatusSensor(CoordinatorEntity, SensorEntity):
@@ -227,7 +299,10 @@ class PhilipsPetsSeriesTuyaStatusSensor(CoordinatorEntity, SensorEntity):
     @property
     def state(self):
         """Return the Tuya device status."""
-        tuya_status = self.coordinator.data.get("tuya_status")
+        # Fix logic to get status from correct path if needed
+        # Assuming coordinator data structure is fixed or using base_data
+        base_data = self.coordinator.data.get("base_data", {})
+        tuya_status = base_data.get("tuya_status")
         if tuya_status:
             return tuya_status.get("status")
         return None
@@ -235,16 +310,49 @@ class PhilipsPetsSeriesTuyaStatusSensor(CoordinatorEntity, SensorEntity):
     @property
     def extra_state_attributes(self):
         """Return Tuya device attributes."""
-        tuya_status = self.coordinator.data.get("tuya_status")
+        base_data = self.coordinator.data.get("base_data", {})
+        tuya_status = base_data.get("tuya_status")
         if tuya_status:
             return tuya_status
         return {}
-
+    
     @property
     def available(self):
         """Return if the sensor is available."""
         return (
             super().available
             and self.coordinator.last_update_success
-            and self.coordinator.data.get("tuya_status") is not None
+            and self.coordinator.data.get("base_data", {}).get("tuya_status") is not None
         )
+
+
+class PhilipsPetsSeriesDiscoverySensor(CoordinatorEntity, SensorEntity):
+    """Representation of the Philips Pets Series Discovery (Version) Sensor."""
+
+    def __init__(self, coordinator):
+        """Initialize the discovery sensor."""
+        super().__init__(coordinator)
+        self._attr_unique_id = "philips_pet_series_api_version"
+        self._attr_name = "Philips Pet Series Cloud Version"
+        self._attr_icon = "mdi:cloud-check"
+
+    @property
+    def state(self):
+        """Return the current android version as a proxy for API version."""
+        config = self.coordinator.data.get("base_data", {}).get("discovery_config")
+        if config and config.android_release:
+            return config.android_release.current_version
+        return "Unknown"
+
+    @property
+    def extra_state_attributes(self):
+        """Return extra attributes."""
+        config = self.coordinator.data.get("base_data", {}).get("discovery_config")
+        if config:
+            return {
+                "api_url": config.api_url,
+                "consumer_url": config.consumer_url,
+                "ios_version": config.ios_release.current_version if config.ios_release else None,
+                "min_android_version": config.android_release.min_version if config.android_release else None,
+            }
+        return {}

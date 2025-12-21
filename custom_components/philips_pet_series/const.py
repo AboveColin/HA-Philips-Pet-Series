@@ -12,8 +12,14 @@ WEEKDAYS = {
     6: "Sunday",
 }
 
+# Authentication config keys
 CONF_ACCESS_TOKEN = "access_token"
 CONF_REFRESH_TOKEN = "refresh_token"
+CONF_CALLBACK_URL = "callback_url"
+CONF_CODE_VERIFIER = "code_verifier"
+CONF_STATE = "state"
+
+# Tuya config keys
 CONF_TUYA_CLIENT_ID = "tuya_client_id"
 CONF_TUYA_IP = "tuya_ip"
 CONF_TUYA_LOCAL_KEY = "tuya_local_key"
