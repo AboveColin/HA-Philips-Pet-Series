@@ -93,9 +93,9 @@ class PhilipsPetsSeriesSwitch(PhilipsPetsSeriesEntity, SwitchEntity):
         """Turn the switch on."""
         try:
             if self._dp_code == "device_active":
-                await self.hass.async_add_executor_job(self._client.power_on_device, self._home, self._device.id)
+                await self._client.power_on_device(self._home, self._device.id)
             elif self._dp_code == "push_notification_motion":
-                await self.hass.async_add_executor_job(self._client.enable_motion_notifications, self._home, self._device.id)
+                await self._client.enable_motion_notifications(self._home, self._device.id)
             else:
                 _LOGGER.warning("Unhandled Boolean switch dp_code: %s", self._dp_code)
             await self.coordinator.async_request_refresh()
@@ -106,9 +106,9 @@ class PhilipsPetsSeriesSwitch(PhilipsPetsSeriesEntity, SwitchEntity):
         """Turn the switch off."""
         try:
             if self._dp_code == "device_active":
-                await self.hass.async_add_executor_job(self._client.power_off_device, self._home, self._device.id)
+                await self._client.power_off_device(self._home, self._device.id)
             elif self._dp_code == "push_notification_motion":
-                await self.hass.async_add_executor_job(self._client.disable_motion_notifications, self._home, self._device.id)
+                await self._client.disable_motion_notifications(self._home, self._device.id)
             else:
                 _LOGGER.warning("Unhandled Boolean switch dp_code: %s", self._dp_code)
             await self.coordinator.async_request_refresh()

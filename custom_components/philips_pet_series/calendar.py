@@ -79,14 +79,15 @@ class PhilipsPetsSeriesCalendar(CalendarEntity):
                 _LOGGER.debug("Skipping meal '%s' for device %s", meal.name, meal.device_id)
                 continue
 
-            # Parse feed_time (e.g., '07:00Z')
+            # Parse feed_time (e.g., '07:00' or '07:00Z')
             try:
-                feed_time_naive = datetime.strptime(meal.feed_time, "%H:%MZ").time()
-                feed_datetime = datetime.combine(start_date.date(), feed_time_naive)
-                feed_datetime = feed_datetime.replace(tzinfo=timezone.utc)
-                feed_datetime = feed_datetime.astimezone(hass_timezone)
+                # Try parsing with 'Z' suffix first, then without
+                if meal.feed_time.endswith('Z'):
+                    feed_time_naive = datetime.strptime(meal.feed_time, "%H:%MZ").time()
+                else:
+                    feed_time_naive = datetime.strptime(meal.feed_time, "%H:%M").time()
             except ValueError as e:
-                _LOGGER.error("Invalid feed_time format for meal '%s': %s", meal.name, e)
+                _LOGGER.error("Invalid feed_time format for meal '%s': time data '%s' does not match expected format (HH:MM or HH:MMZ)", meal.name, meal.feed_time)
                 continue
 
             # Map repeat_days (1=Monday, 7=Sunday) to Python's weekday (0=Monday, 6=Sunday)
