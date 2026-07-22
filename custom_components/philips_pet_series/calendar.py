@@ -11,6 +11,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 import homeassistant.util.dt as dt_util
 
 from . import DOMAIN, PhilipsPetsSeriesDataUpdateCoordinator
+from .entity import iter_home_devices
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -26,8 +27,7 @@ async def async_setup_entry(
 
     calendars = []
 
-    for home in coordinator.data["homes"]:
-        for device in coordinator.data["devices"]:
+    for home, device in iter_home_devices(coordinator):
             # Create a calendar entity for each device
             calendars.append(PhilipsPetsSeriesCalendar(coordinator, client, home, device))
 

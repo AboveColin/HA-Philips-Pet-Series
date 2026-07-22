@@ -8,7 +8,7 @@ import logging
 from petsseries.api import PetsSeriesClient
 
 from . import DOMAIN, PhilipsPetsSeriesDataUpdateCoordinator
-from .entity import PhilipsPetsSeriesEntity
+from .entity import PhilipsPetsSeriesEntity, iter_home_devices
 from .datapoints import datapoints
 
 _LOGGER = logging.getLogger(__name__)
@@ -25,11 +25,14 @@ async def async_setup_entry(
 
     switches = []
 
-    for home in coordinator.data["homes"]:
-        for device in coordinator.data["devices"]:
+    if not client.tuya_client and not getattr(client.auth, "id_token", None):
+        async_add_entities(switches)
+        return
+
+    for home, device in iter_home_devices(coordinator):
             device_id = device.id
             device_settings = coordinator.data["settings"].get(device_id, {})
-            
+
             # Iterate through all datapoints
             for dp_id, dp_info in datapoints.items():
                 dp_code = dp_info["dpCode"]
@@ -38,7 +41,7 @@ async def async_setup_entry(
 
                 if dp_type == "Boolean":
                     switches.append(PhilipsPetsSeriesSwitch(
-                        coordinator, client, home, device, dp_code, dp_path
+                        coordinator, client, home, device, str(dp_id), dp_code, dp_path
                     ))
 
     async_add_entities(switches)
@@ -46,13 +49,14 @@ async def async_setup_entry(
 class PhilipsPetsSeriesSwitch(PhilipsPetsSeriesEntity, SwitchEntity):
     """Representation of a Philips Pets Series switch."""
 
-    def __init__(self, coordinator, client, home, device, dp_code, dp_path):
+    def __init__(self, coordinator, client, home, device, dp_id, dp_code, dp_path):
         """Initialize the switch."""
         super().__init__(coordinator, device, home)
         self._client = client
+        self._dp_id = dp_id
         self._dp_code = dp_code
         self._dp_path = dp_path
-        self._attr_unique_id = f"{device.id}_{dp_code}"
+        self._attr_unique_id = f"{device.id}_switch_{dp_code}"
         self._attr_name = f"{dp_code.replace('_', ' ').title()} ({device.name})"
         self._attr_icon = "mdi:toggle-switch"
 
@@ -92,12 +96,10 @@ class PhilipsPetsSeriesSwitch(PhilipsPetsSeriesEntity, SwitchEntity):
     async def async_turn_on(self, **kwargs):
         """Turn the switch on."""
         try:
-            if self._dp_code == "device_active":
-                await self._client.power_on_device(self._home, self._device.id)
-            elif self._dp_code == "push_notification_motion":
-                await self._client.enable_motion_notifications(self._home, self._device.id)
-            else:
-                _LOGGER.warning("Unhandled Boolean switch dp_code: %s", self._dp_code)
+            await self._client.publish_cloud_dps(
+                self.coordinator.tuya_device_id(self._device),
+                {self._dp_id: True},
+            )
             await self.coordinator.async_request_refresh()
         except Exception as e:
             _LOGGER.error("Failed to turn on %s: %s", self._attr_name, e)
@@ -105,12 +107,10 @@ class PhilipsPetsSeriesSwitch(PhilipsPetsSeriesEntity, SwitchEntity):
     async def async_turn_off(self, **kwargs):
         """Turn the switch off."""
         try:
-            if self._dp_code == "device_active":
-                await self._client.power_off_device(self._home, self._device.id)
-            elif self._dp_code == "push_notification_motion":
-                await self._client.disable_motion_notifications(self._home, self._device.id)
-            else:
-                _LOGGER.warning("Unhandled Boolean switch dp_code: %s", self._dp_code)
+            await self._client.publish_cloud_dps(
+                self.coordinator.tuya_device_id(self._device),
+                {self._dp_id: False},
+            )
             await self.coordinator.async_request_refresh()
         except Exception as e:
             _LOGGER.error("Failed to turn off %s: %s", self._attr_name, e)

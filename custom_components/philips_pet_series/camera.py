@@ -11,7 +11,7 @@ from homeassistant.util import dt as dt_util
 
 import logging
 from . import DOMAIN, PhilipsPetsSeriesDataUpdateCoordinator
-from .entity import PhilipsPetsSeriesEntity
+from .entity import PhilipsPetsSeriesEntity, iter_home_devices
 from petsseries.crypto import decrypt_image
 
 _LOGGER = logging.getLogger(__name__)
@@ -25,21 +25,36 @@ async def async_setup_entry(
     coordinator: PhilipsPetsSeriesDataUpdateCoordinator = hass.data[DOMAIN][
         config_entry.entry_id
     ]["coordinator"]
+    client = hass.data[DOMAIN][config_entry.entry_id]["client"]
+    bridge = hass.data[DOMAIN][config_entry.entry_id]["bridge"]
 
+    # The integration supervises the bundled pure-Go Tuya P2P->RTSP bridge.
+    # No stream URL or local Tuya credential options are required.
     cameras = []
-    for home in coordinator.data.get("homes", []):
-        for device in coordinator.data.get("devices", []):
-            cameras.append(PhilipsPetsSeriesCamera(coordinator, home, device, config_entry))
+    for home, device in iter_home_devices(coordinator):
+        cameras.append(
+            PhilipsPetsSeriesCamera(coordinator, home, device, config_entry, bridge)
+        )
 
     async_add_entities(cameras)
 
 
 class PhilipsPetsSeriesCamera(PhilipsPetsSeriesEntity, Camera):
-    """Representation of a Philips Pets Series Camera."""
+    """Representation of a Philips Pets Series Camera.
 
-    _attr_supported_features = CameraEntityFeature.STREAM
+    The bundled bridge turns the feeder's proprietary Tuya media transport into
+    an internal RTSP source. Motion snapshots remain available as the still
+    image fallback.
+    """
 
-    def __init__(self, coordinator: PhilipsPetsSeriesDataUpdateCoordinator, home, device, entry: ConfigEntry):
+    def __init__(
+        self,
+        coordinator: PhilipsPetsSeriesDataUpdateCoordinator,
+        home,
+        device,
+        entry: ConfigEntry,
+        bridge,
+    ):
         """Initialize the camera."""
         PhilipsPetsSeriesEntity.__init__(self, coordinator, device, home)
         Camera.__init__(self)
@@ -47,26 +62,10 @@ class PhilipsPetsSeriesCamera(PhilipsPetsSeriesEntity, Camera):
         self._attr_name = f"{device.name} Camera"
         self._attr_icon = "mdi:cctv"
         self._entry = entry
-        
-        # Check for Tuya credentials
-        self._tuya_creds = {
-             "device_id": self._entry.data.get("tuya_client_id"), # In config flow mapped to existing Tuya Client ID field? 
-             # Wait, config_flow uses CONF_TUYA_CLIENT_ID which might not be device_id but Access ID.
-             # But user investigation showed they likely put device ID there.
-             "local_key": self._entry.data.get("tuya_local_key"),
-             "ip": self._entry.data.get("tuya_ip"),
-        }
-
-    @property
-    def extra_state_attributes(self):
-        """Return the state attributes."""
-        attrs = super().extra_state_attributes or {}
-        # Expose Tuya details for easy go2rtc setup
-        if self._tuya_creds["device_id"]:
-             attrs["tuya_device_id"] = self._tuya_creds["device_id"]
-        if self._tuya_creds["local_key"]:
-             attrs["tuya_local_key"] = self._tuya_creds["local_key"]
-        return attrs
+        self._bridge = bridge
+        self._stream_url = self._bridge.stream_url(device)
+        if self._stream_url:
+            self._attr_supported_features = CameraEntityFeature.STREAM
 
     def _get_latest_event(self):
         key = f"{self._home.id}_motion_detected"
@@ -83,34 +82,25 @@ class PhilipsPetsSeriesCamera(PhilipsPetsSeriesEntity, Camera):
         latest_event = self._get_latest_event()
         if not latest_event:
             return None
-            
+
         url = latest_event.thumbnail_url
         key = latest_event.thumbnail_key
-        
+
         if not url or not key:
             return None
-            
+
         session = async_get_clientsession(self.hass)
         try:
             async with session.get(url) as response:
                 response.raise_for_status()
                 content = await response.read()
-                
+
             return await self.hass.async_add_executor_job(decrypt_image, content, key)
-            
+
         except Exception as e:
             _LOGGER.error(f"Error fetching/decrypting camera image: {e}")
             return None
 
     async def stream_source(self) -> str | None:
-        """Return the source of the stream."""
-        # Check if go2rtc is running on localhost or configured
-        # For now, we return None as we can't guarantee the stream URL without go2rtc.
-        # But if the user manually configures go2rtc with the attributes we expose, 
-        # they can override the stream_source via customization or we can look for a config option.
-        
-        # Placeholder: If the user adds a specific options entry, use it.
-        if stream_url := self._entry.options.get("stream_url"):
-            return stream_url
-            
-        return None
+        """Return the integration-managed RTSP stream URL."""
+        return self._stream_url
