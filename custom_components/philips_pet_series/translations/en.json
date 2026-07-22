@@ -3,54 +3,50 @@
     "step": {
       "user": {
         "title": "Configure Philips Pets Series",
-        "description": "Choose how you want to authenticate with Philips Pets Series.",
+        "description": "Enter the email address for your Philips account. We will send you a one-time code.",
         "data": {
-          "auth_method": "Authentication Method"
+          "email": "Email address"
         },
         "data_description": {
-          "auth_method": "Select your preferred login method. OAuth is recommended for security."
+          "email": "The account email that owns your Pet Series devices."
         }
       },
-      "oauth_callback": {
-        "title": "Complete Philips Login",
-        "description": "**Step 1:** Open the login URL in your browser:\n\n[Click here to login]({authorization_url})\n\n**Step 2:** Log in with your Philips account.\n\n**Step 3:** After login, you'll see an error message about 'Failed to launch paw://login?code=...'. To get the callback URL:\n\n1. Open Chrome DevTools (F12 or Right-click → Inspect)\n2. Go to the Console tab\n3. Find the error message that shows the `paw://login?code=...` URL\n4. Right-click on that URL in the console\n5. Select 'Copy' to copy the full URL\n6. Paste it below\n\n**Note:** You cannot copy the URL from the address bar. You must use Chrome DevTools console to copy the `paw://` URL.",
+      "code": {
+        "title": "Enter Philips verification code",
+        "description": "A one-time code was sent to {email}.",
         "data": {
-          "callback_url": "Callback URL"
+          "code": "Email code"
         },
         "data_description": {
-          "callback_url": "Paste the full redirect URL starting with 'paw://login?...' (copy from Chrome DevTools console)"
+          "code": "Enter the code from the email."
         }
       },
-      "tuya": {
-        "title": "Pet Feeder Camera (Optional)",
-        "description": "If you have a Philips Pet Feeder with camera and want local video streaming, enter the Tuya credentials below. Otherwise, leave empty and click Submit.\n\n**Obtaining the Local Key:**\n\nThe Local Key is required for local device communication. You can extract it using Frida on a rooted Android device:\n\n1. **Install Frida**: Install [MagiskFrida](https://github.com/AeonLucid/MagiskFrida) module for auto-start on boot, or manually install Frida server on your rooted Android device.\n\n2. **Run Frida Trace**: Connect your Android device via USB and run:\n   ```bash\n   frida-trace -U --decorate \\\n     -j '*!*encodeString*' \\\n     -f com.versuni.nbx.petsseries \\\n     -o output.txt\n   ```\n\n3. **Open the Philips Pet Series app** on your device and navigate to your pet feeder device.\n\n4. **Search for localKey**: In the `output.txt` file, search for `localKey`. You'll find a line like:\n   ```json\n   \"localKey\":\"FceXXX]+$7}9Zl.\"\n   ```\n   Copy the value (e.g., `FceXXX]+$7}9Zl.`) and paste it above.\n\n**Alternative Methods:**\n- Register your device via the Tuya app and obtain the key from the Tuya IoT Platform developer console.\n- Use the `tinytuya` Python library wizard: `pip install tinytuya && python -m tinytuya wizard`",
+      "reauth_user": {
+        "title": "Re-authenticate Philips Pets Series",
+        "description": "Enter your Philips account email. We will send a new one-time code.",
         "data": {
-          "tuya_client_id": "Pet Feeder Client ID",
-          "tuya_ip": "Pet Feeder IP Address",
-          "tuya_local_key": "Pet Feeder Local Key"
-        },
-        "data_description": {
-          "tuya_client_id": "Device ID from Tuya (optional)",
-          "tuya_ip": "Local IP address of your pet feeder (optional)",
-          "tuya_local_key": "Local key for Tuya communication (optional). Extract using Frida on rooted Android device - see description above."
+          "email": "Email address"
         }
       },
-      "manual": {
-        "title": "Manual Token Entry",
-        "description": "To obtain your tokens, visit [this login page]({login_url}) and extract the access_token and refresh_token from the browser session.",
+      "reauth_code": {
+        "title": "Enter Philips verification code",
+        "description": "A one-time code was sent to {email}.",
         "data": {
-          "access_token": "Access Token",
-          "refresh_token": "Refresh Token",
-          "tuya_client_id": "Pet Feeder Client ID",
-          "tuya_ip": "Pet Feeder IP Address",
-          "tuya_local_key": "Pet Feeder Local Key"
-        },
-        "data_description": {
-          "access_token": "Enter your access token.",
-          "refresh_token": "Enter your refresh token.",
-          "tuya_client_id": "Enter your Pet Feeder Client ID (optional).",
-          "tuya_ip": "Enter your Pet Feeder IP Address (optional).",
-          "tuya_local_key": "Enter your Pet Feeder Local Key (optional)."
+          "code": "Email code"
+        }
+      },
+      "reconfigure": {
+        "title": "Reconfigure Philips Pets Series",
+        "description": "Enter the Philips account email to replace the stored login.",
+        "data": {
+          "email": "Email address"
+        }
+      },
+      "reconfigure_code": {
+        "title": "Enter Philips verification code",
+        "description": "A one-time code was sent to {email}.",
+        "data": {
+          "code": "Email code"
         }
       },
       "reauth_method": {
@@ -82,51 +78,25 @@
           "refresh_token": "Enter your new refresh token."
         }
       },
-      "reconfigure": {
-        "title": "Reconfigure Philips Pets Series",
-        "description": "To update your credentials for Philips Pets Series, please visit [this login page]({login_url}).",
+      "settings": {
+        "title": "Regional settings",
+        "description": "Sent with Philips/Tuya requests so they match your account. Defaults come from your Home Assistant configuration.",
         "data": {
-          "access_token": "Access Token",
-          "refresh_token": "Refresh Token",
-          "tuya_client_id": "Pet Feeder Client ID",
-          "tuya_ip": "Pet Feeder IP Address",
-          "tuya_local_key": "Pet Feeder Local Key"
-        },
-        "data_description": {
-          "access_token": "Enter your new access token.",
-          "refresh_token": "Enter your new refresh token.",
-          "tuya_client_id": "Enter your Pet Feeder Client ID (optional).",
-          "tuya_ip": "Enter your Pet Feeder IP Address (optional).",
-          "tuya_local_key": "Enter your Pet Feeder Local Key (optional)."
-        }
-      }
-    },
-    "options": {
-      "step": {
-        "init": {
-          "title": "Philips Pet Series Options",
-          "description": "Configure optional Tuya credentials for local camera streaming.",
-          "data": {
-            "tuya_client_id": "Pet Feeder Client ID",
-            "tuya_ip": "Pet Feeder IP Address",
-            "tuya_local_key": "Pet Feeder Local Key"
-          },
-          "data_description": {
-            "tuya_client_id": "Device ID from Tuya (optional)",
-            "tuya_ip": "Local IP address of your pet feeder (optional)",
-            "tuya_local_key": "Local key for Tuya communication (optional). Extract using Frida on rooted Android device."
-          }
+          "timezone": "Time zone",
+          "language": "Language",
+          "country": "Country"
         }
       }
     },
     "error": {
       "cannot_connect": "Unable to connect to the Philips service. Please check your network.",
-      "invalid_auth": "Invalid authentication. Please ensure you copied the complete callback URL.",
+      "invalid_auth": "The code was invalid or expired. Request a new code and try again.",
       "invalid_tuya_support": "Tuya support is invalid or missing dependencies.",
       "auth_url_failed": "Failed to generate authorization URL. Please try again.",
       "unknown": "An unknown error occurred. Check logs for details."
     },
     "abort": {
+      "already_configured": "This Philips account is already configured.",
       "unknown_entry": "The configuration entry is unknown.",
       "reauth_successful": "Re-authentication successful! Your tokens have been updated.",
       "reconfigure_successful": "Reconfiguration successful!"

@@ -7,7 +7,7 @@ from homeassistant.util import dt as dt_util
 
 import logging
 from . import DOMAIN, PhilipsPetsSeriesDataUpdateCoordinator
-from .entity import PhilipsPetsSeriesEntity
+from .entity import PhilipsPetsSeriesEntity, iter_home_devices
 from petsseries.crypto import decrypt_image
 
 _LOGGER = logging.getLogger(__name__)
@@ -23,9 +23,8 @@ async def async_setup_entry(
     ]["coordinator"]
 
     images = []
-    for home in coordinator.data.get("homes", []):
-        for device in coordinator.data.get("devices", []):
-            images.append(PhilipsPetsSeriesMotionImage(coordinator, home, device))
+    for home, device in iter_home_devices(coordinator):
+        images.append(PhilipsPetsSeriesMotionImage(coordinator, home, device))
 
     async_add_entities(images)
 
@@ -61,24 +60,24 @@ class PhilipsPetsSeriesMotionImage(PhilipsPetsSeriesEntity, ImageEntity):
         latest_event = self._get_latest_event()
         if not latest_event:
             return None
-            
+
         url = latest_event.thumbnail_url
         key = latest_event.thumbnail_key
-        
+
         if not url or not key:
             return None
-            
+
         session = async_get_clientsession(self.hass)
         try:
             # Fetch the encrypted image
             async with session.get(url) as response:
                 response.raise_for_status()
                 content = await response.read()
-                
+
             # Decrypt the image
             # Run in executor to avoid blocking parsing
             return await self.hass.async_add_executor_job(decrypt_image, content, key)
-            
+
         except Exception as e:
             _LOGGER.error(f"Error fetching/decrypting image: {e}")
             return None
