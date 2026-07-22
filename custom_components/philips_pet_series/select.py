@@ -9,7 +9,7 @@ import logging
 from petsseries.api import PetsSeriesClient
 
 from . import DOMAIN, PhilipsPetsSeriesDataUpdateCoordinator
-from .entity import PhilipsPetsSeriesEntity
+from .entity import PhilipsPetsSeriesEntity, iter_home_devices
 from .datapoints import datapoints
 
 _LOGGER = logging.getLogger(__name__)
@@ -27,11 +27,14 @@ async def async_setup_entry(
 
     selects = []
 
-    for home in coordinator.data["homes"]:
-        for device in coordinator.data["devices"]:
+    if not client.tuya_client and not getattr(client.auth, "id_token", None):
+        async_add_entities(selects)
+        return
+
+    for home, device in iter_home_devices(coordinator):
             device_id = device.id
             device_settings = coordinator.data["settings"].get(device_id, {})
-            
+
             # Iterate through all datapoints
             for dp_id, dp_info in datapoints.items():
                 dp_code = dp_info["dpCode"]
@@ -42,7 +45,7 @@ async def async_setup_entry(
                     options = dp_info["valueRange"]
                     nicenames = dp_info.get("niceNames", options)
                     selects.append(PhilipsPetsSeriesSelect(
-                        coordinator, client, home, device, dp_code, options, nicenames, dp_path
+                        coordinator, client, home, device, str(dp_id), dp_code, options, nicenames, dp_path
                     ))
 
     async_add_entities(selects)
@@ -51,15 +54,16 @@ async def async_setup_entry(
 class PhilipsPetsSeriesSelect(PhilipsPetsSeriesEntity, SelectEntity):
     """Representation of a Philips Pets Series select entity for Enum datapoints."""
 
-    def __init__(self, coordinator, client, home, device, dp_code, options, nicenames, dp_path):
+    def __init__(self, coordinator, client, home, device, dp_id, dp_code, options, nicenames, dp_path):
         """Initialize the select entity."""
         super().__init__(coordinator, device, home)
         self._client = client
+        self._dp_id = dp_id
         self._dp_code = dp_code
         self._options = options
         self._nicenames = nicenames
         self._dp_path = dp_path
-        self._attr_unique_id = f"{device.id}_{dp_code}"
+        self._attr_unique_id = f"{device.id}_select_{dp_code}"
         self._attr_name = f"{dp_code.replace('_', ' ').title()} ({device.name})"
         self._value_to_nicename = {str(k): v for k, v in zip(options, nicenames)}
         self._nicename_to_value = {v: str(k) for k, v in zip(options, nicenames)}
@@ -132,7 +136,10 @@ class PhilipsPetsSeriesSelect(PhilipsPetsSeriesEntity, SelectEntity):
                 option,
                 value,
             )
-            await self.hass.async_add_executor_job(self._client.set_tuya_value, self._dp_code, value)
+            await self._client.publish_cloud_dps(
+                self.coordinator.tuya_device_id(self._device),
+                {self._dp_id: value},
+            )
             await self.coordinator.async_request_refresh()
         except Exception as e:
             _LOGGER.error("Failed to set %s to %s: %s", self._attr_name, option, e)

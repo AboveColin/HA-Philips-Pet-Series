@@ -15,11 +15,23 @@ WEEKDAYS = {
 # Authentication config keys
 CONF_ACCESS_TOKEN = "access_token"
 CONF_REFRESH_TOKEN = "refresh_token"
+CONF_ID_TOKEN = "id_token"
 CONF_CALLBACK_URL = "callback_url"
 CONF_CODE_VERIFIER = "code_verifier"
 CONF_STATE = "state"
+CONF_HOME_IDS = "home_ids"
 
-# Tuya config keys
-CONF_TUYA_CLIENT_ID = "tuya_client_id"
-CONF_TUYA_IP = "tuya_ip"
-CONF_TUYA_LOCAL_KEY = "tuya_local_key"
+# Regional config keys — chosen in the config flow, defaulted from HA's own
+# config so they correspond to the user (nothing region-specific is hardcoded).
+CONF_TIMEZONE = "timezone"
+CONF_LANGUAGE = "language"
+CONF_COUNTRY = "country"
+
+# ISO-3166 alpha-2 -> telephone dial code (for the country picker default).
+COUNTRY_DIAL_CODES = {
+    "US": "1", "CA": "1", "GB": "44", "IE": "353", "NL": "31", "BE": "32",
+    "DE": "49", "FR": "33", "ES": "34", "IT": "39", "PT": "351", "CH": "41",
+    "AT": "43", "DK": "45", "SE": "46", "NO": "47", "FI": "358", "PL": "48",
+    "CZ": "420", "GR": "30", "LU": "352", "AU": "61", "NZ": "64", "JP": "81",
+    "CN": "86", "IN": "91", "BR": "55", "MX": "52", "ZA": "27", "TR": "90",
+}

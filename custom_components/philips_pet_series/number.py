@@ -9,7 +9,7 @@ import logging
 from petsseries.api import PetsSeriesClient
 
 from . import DOMAIN, PhilipsPetsSeriesDataUpdateCoordinator
-from .entity import PhilipsPetsSeriesEntity
+from .entity import PhilipsPetsSeriesEntity, iter_home_devices
 from .datapoints import datapoints
 
 _LOGGER = logging.getLogger(__name__)
@@ -25,11 +25,14 @@ async def async_setup_entry(
 
     numbers = []
 
-    for home in coordinator.data["homes"]:
-        for device in coordinator.data["devices"]:
+    if not client.tuya_client and not getattr(client.auth, "id_token", None):
+        async_add_entities(numbers)
+        return
+
+    for home, device in iter_home_devices(coordinator):
             device_id = device.id
             device_settings = coordinator.data["settings"].get(device_id, {})
-            
+
             # Iterate through all datapoints
             for dp_id, dp_info in datapoints.items():
                 dp_code = dp_info["dpCode"]
@@ -39,15 +42,15 @@ async def async_setup_entry(
                 if dp_type == "Integer":
                     if dp_code == "feed_num":
                         number_entitiy = PhilipsPetsSeriesNumber(
-                            coordinator, client, home, device, dp_code, dp_info["properties"], dp_path
+                            coordinator, client, home, device, str(dp_id), dp_code, dp_info["properties"], dp_path
                         )
                     elif dp_code == "feed_abnormal":
                         number_entitiy = PhilipsPetsSeriesNumber(
-                            coordinator, client, home, device, dp_code, dp_info["properties"], dp_path
+                            coordinator, client, home, device, str(dp_id), dp_code, dp_info["properties"], dp_path
                         )
                     else:
                         number_entitiy = PhilipsPetsSeriesNumber(
-                            coordinator, client, home, device, dp_code, dp_info["properties"], dp_path, EntityCategory.CONFIG
+                            coordinator, client, home, device, str(dp_id), dp_code, dp_info["properties"], dp_path, EntityCategory.CONFIG
                         )
                     numbers.append(number_entitiy)
 
@@ -56,14 +59,15 @@ async def async_setup_entry(
 class PhilipsPetsSeriesNumber(PhilipsPetsSeriesEntity, NumberEntity):
     """Representation of a Philips Pets Series number entity for Integer datapoints."""
 
-    def __init__(self, coordinator, client, home, device, dp_code, properties, dp_path, category=None):
+    def __init__(self, coordinator, client, home, device, dp_id, dp_code, properties, dp_path, category=None):
         """Initialize the number entity."""
         super().__init__(coordinator, device, home)
         self._client = client
+        self._dp_id = dp_id
         self._dp_code = dp_code
         self._properties = properties
         self._dp_path = dp_path
-        self._attr_unique_id = f"{device.id}_{dp_code}"
+        self._attr_unique_id = f"{device.id}_number_{dp_code}"
         self._attr_name = f"{dp_code.replace('_', ' ').title()} ({device.name})"
         self._attr_native_min_value = properties.get("min", 0)
         self._attr_native_max_value = properties.get("max", 100)
@@ -142,7 +146,11 @@ class PhilipsPetsSeriesNumber(PhilipsPetsSeriesEntity, NumberEntity):
                 self._attr_name,
                 int_value,
             )
-            await self.hass.async_add_executor_job(self._client.set_tuya_value, self._dp_code, int_value)
+            dp_code = self._dp_id
+            await self._client.publish_cloud_dps(
+                self.coordinator.tuya_device_id(self._device),
+                {dp_code: int_value},
+            )
             await self.coordinator.async_request_refresh()
         except Exception as e:
             _LOGGER.error("Failed to set %s to %s: %s", self._attr_name, value, e)
