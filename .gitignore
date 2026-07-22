@@ -1,0 +1,8 @@
+__pycache__/
+*.pyc
+.DS_Store
+.mypy_cache/
+*.log
+
+# camera bridge binaries are downloaded from the tuya-ipc-terminal release, not committed
+custom_components/philips_pet_series/bin/
