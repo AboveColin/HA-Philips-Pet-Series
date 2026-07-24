@@ -219,12 +219,17 @@ class PhilipsPetsSeriesRawDpSensor(PhilipsPetsSeriesEntity, SensorEntity):
 
     @property
     def _raw_value(self):
-        return (
+        value = (
             self.coordinator.data.get("settings", {})
             .get(self._device.id, {})
             .get("tuya_status", {})
             .get(self._dp_id)
         )
+        # Several datapoints report an empty string when they hold nothing;
+        # that is an absent value, not a state of "".
+        if isinstance(value, str) and not value.strip():
+            return None
+        return value
 
     @property
     def native_value(self):
@@ -654,8 +659,10 @@ class PhilipsPetsSeriesDiscoverySensor(CoordinatorEntity, SensorEntity):
         """Return the current android version as a proxy for API version."""
         config = self.coordinator.data.get("base_data", {}).get("discovery_config")
         if config and config.android_release:
-            return config.android_release.current_version
-        return "Unknown"
+            # Report unknown rather than a literal "Unknown"/"" so templates can
+            # test the state properly.
+            return config.android_release.current_version or None
+        return None
 
     @property
     def extra_state_attributes(self):

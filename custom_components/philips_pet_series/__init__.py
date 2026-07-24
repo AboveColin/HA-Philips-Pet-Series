@@ -12,7 +12,8 @@ from datetime import timedelta
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers import entity_registry as er
 from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryNotReady
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from homeassistant.helpers.storage import Store
@@ -411,6 +412,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # reloading the entry.
     entry.async_on_unload(entry.add_update_listener(_async_update_listener))
 
+    _async_migrate_unique_ids(hass, entry)
+
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
     # Register services
@@ -551,6 +554,27 @@ async def async_setup_services(hass: HomeAssistant, client: PetsSeriesClient):
     hass.services.async_register(DOMAIN, "add_device", handle_add_device)
     hass.data.setdefault(DOMAIN, {})["services_registered"] = True
     # hass.services.async_register(DOMAIN, "reset_device_filter", handle_reset_device_filter)
+
+
+@callback
+def _async_migrate_unique_ids(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Re-key entities whose unique_id changed, keeping their history.
+
+    The cloud-version sensor used a fixed unique_id that collided between
+    accounts.  Renaming it in place preserves the existing entity instead of
+    orphaning it and creating a duplicate alongside.
+    """
+    registry = er.async_get(hass)
+    migrations = (("sensor", "philips_pet_series_api_version", f"{entry.entry_id}_api_version"),)
+    for domain, old_unique_id, new_unique_id in migrations:
+        entity_id = registry.async_get_entity_id(domain, DOMAIN, old_unique_id)
+        if entity_id is None:
+            continue
+        if registry.async_get_entity_id(domain, DOMAIN, new_unique_id) is not None:
+            # The new id already exists; leave both alone rather than clashing.
+            continue
+        _LOGGER.debug("Migrating unique_id %s -> %s", old_unique_id, new_unique_id)
+        registry.async_update_entity(entity_id, new_unique_id=new_unique_id)
 
 
 async def _async_update_listener(hass: HomeAssistant, entry: ConfigEntry) -> None:

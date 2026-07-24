@@ -30,7 +30,8 @@ datapoints = {
         "dpCode": "anti_flicker",
         "standardType": "Enum",
         "valueRange": ["0", "1", "2"],
-        "niceNames": ["0", "1", "2"],
+        # Tuya's standard anti-flicker enum: disabled, 50Hz mains, 60Hz mains.
+        "niceNames": ["Disabled", "50 Hz", "60 Hz"],
         "path": "tuya_status",
     },
     "134": {
