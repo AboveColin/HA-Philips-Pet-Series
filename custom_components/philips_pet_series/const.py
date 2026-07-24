@@ -28,11 +28,12 @@ CONF_LANGUAGE = "language"
 CONF_COUNTRY = "country"
 CONF_CAMERA_MODE = "camera_mode"
 
-# Datapoints once exposed as sensors that carried no usable meaning: 203 is a
-# write-only command register, 204 and 206 are packed status/history integers
-# with no published encoding, and 234/235 are audio-upload commands that always
-# read back empty.  Listed here so their stale registry rows can be removed.
-REMOVED_DP_SENSORS = ("203", "204", "206", "234", "235")
+# Datapoints once exposed as sensors that carried no usable meaning.  Verified
+# against two days of recorded history: 203 (a write-only command register) and
+# 204 ("device status") never left 0 across every scheduled feed, and 234/235 are
+# audio-upload commands that always read back empty.  Listed here so their stale
+# registry rows are removed.
+REMOVED_DP_SENSORS = ("203", "204", "234", "235")
 
 # ISO-3166 alpha-2 -> telephone dial code (for the country picker default).
 COUNTRY_DIAL_CODES = {

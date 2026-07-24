@@ -41,7 +41,17 @@ _READ_ONLY_TUYA_DPS = {
     # "feeding abnormality": the fault register the food/outlet problem
     # sensors use to decide whether a fault is still current.
     "255": ("Feeding fault", None),
+    # "reported history data": a packed feeding record whose encoding Philips
+    # does not publish.  Recorded history shows it does change around feeding
+    # (observed 256/512/768, i.e. n << 8), so it is kept for anyone wanting to
+    # decode it -- but disabled by default, since an opaque integer is not
+    # useful on a dashboard.
+    "206": ("Reported history data", None),
 }
+
+# Datapoints surfaced only for diagnosis; created disabled so they do not clutter
+# the device page unless somebody deliberately turns them on.
+_DISABLED_BY_DEFAULT_DPS = ("206",)
 
 def _has_ota_module(coordinator, device, module: str) -> bool:
     """Whether the device's metadata reports an OTA module by this name."""
@@ -237,6 +247,8 @@ class PhilipsPetsSeriesRawDpSensor(PhilipsPetsSeriesEntity, SensorEntity):
         self._attr_native_unit_of_measurement = unit
         self._attr_entity_category = EntityCategory.DIAGNOSTIC
         self._attr_icon = "mdi:scale" if unit == "g" else "mdi:alert-circle-outline"
+        if dp_id in _DISABLED_BY_DEFAULT_DPS:
+            self._attr_entity_registry_enabled_default = False
         self._scale = int(
             (datapoints.get(dp_id, {}).get("properties") or {}).get("scale") or 0
         )
