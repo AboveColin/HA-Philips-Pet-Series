@@ -51,23 +51,29 @@ class PhilipsPetsSeriesCalendar(CalendarEntity):
 
     @property
     def device_info(self):
-        """Return device information."""
-        return {
-            "identifiers": {(DOMAIN, self.device.id)},
-            "name": self.device.name,
-            "manufacturer": "Philips",
-            "model": "Pets Series",
-        }
+        """Return device information.
+
+        Only the identifier is claimed here: publishing a second, hardcoded
+        model for the same device made the registry entry flip-flop depending
+        on which platform loaded last.
+        """
+        return {"identifiers": {(DOMAIN, self.device.id)}}
 
     async def async_get_events(
         self, hass, start_date: datetime, end_date: datetime
     ) -> List[CalendarEvent]:
         """Return a list of CalendarEvent based on Meal data within the given date range."""
-        events = []
-        meals = self.coordinator.data.get("meals", [])
+        events = self._build_events(start_date, end_date)
+        self._events = events
+        _LOGGER.debug("Generated %s events for device %s", len(events), self.device.id)
+        return events
 
-        # Use the Home Assistant timezone
-        hass_timezone = dt_util.get_time_zone(self.coordinator.hass.config.time_zone)
+    def _build_events(
+        self, start_date: datetime, end_date: datetime
+    ) -> List[CalendarEvent]:
+        """Expand this device's enabled meals into events across a date range."""
+        events: List[CalendarEvent] = []
+        meals = self.coordinator.data.get("meals", [])
 
         for meal in meals:
             if not meal.enabled:
@@ -124,19 +130,25 @@ class PhilipsPetsSeriesCalendar(CalendarEntity):
                     _LOGGER.debug("Added event: %s, %s - %s", event.summary, event.start, event.end)
                 current_date += timedelta(days=1)
 
-        self._events = events
-        _LOGGER.debug("Generated %s events for device %s", len(events), self.device.id)
+        events.sort(key=lambda event: event.start)
         return events
 
     @property
     def event(self) -> CalendarEvent | None:
-        """Return the current or next upcoming event."""
-        now = dt_util.now()
-        future_events = [event for event in self._events if event.start >= now]
-        future_events.sort(key=lambda event: event.start)
+        """Return the next upcoming meal.
 
-        if future_events:
-            next_event = future_events[0]
-            return next_event
-        else:
-            return None
+        Computed straight from the coordinator's meal schedule: relying on the
+        cache filled by ``async_get_events`` left this permanently empty until
+        somebody opened the calendar panel, so "next meal" automations never
+        fired on a fresh install.
+        """
+        now = dt_util.now()
+        for event in self._build_events(now, now + timedelta(days=8)):
+            if event.end >= now:
+                return event
+        return None
+
+    @property
+    def available(self) -> bool:
+        """Follow the coordinator so total API failure is visible."""
+        return self.coordinator.last_update_success

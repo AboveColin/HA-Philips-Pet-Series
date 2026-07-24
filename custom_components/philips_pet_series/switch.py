@@ -60,7 +60,9 @@ class PhilipsPetsSeriesSwitch(PhilipsPetsSeriesEntity, SwitchEntity):
         self._dp_code = dp_code
         self._dp_path = dp_path
         self._attr_unique_id = f"{device.id}_switch_{dp_code}"
-        self._attr_name = f"{dp_code.replace('_', ' ').title()} ({device.name})"
+        # Home Assistant already prefixes the device name, so repeating it
+        # here produced names like "Voederbak Video Osd (Voederbak)".
+        self._attr_name = dp_code.replace('_', ' ').capitalize()
         self._attr_icon = "mdi:toggle-switch"
 
     _MISSING = object()

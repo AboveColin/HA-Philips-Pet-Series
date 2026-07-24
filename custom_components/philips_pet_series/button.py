@@ -51,7 +51,7 @@ class PhilipsPetsSeriesFeedButton(PhilipsPetsSeriesEntity, ButtonEntity):
         super().__init__(coordinator, device, home)
         self._client = client
         self._attr_unique_id = f"{device.id}_feed_button"
-        self._attr_name = f"Feed {device.name}"
+        self._attr_name = "Feed"
         self._attr_icon = "mdi:food"
         _LOGGER.debug(f"Initialized feed button for device {device.id}")
 
@@ -84,7 +84,7 @@ class PhilipsPetsSeriesResetFilterButton(PhilipsPetsSeriesEntity, ButtonEntity):
         super().__init__(coordinator, device, home)
         self._client = client
         self._attr_unique_id = f"{device.id}_reset_filter_button"
-        self._attr_name = f"Reset Filter {device.name}"
+        self._attr_name = "Reset filter"
         self._attr_icon = "mdi:filter-remove"
 
     async def async_press(self) -> None:

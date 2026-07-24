@@ -69,7 +69,9 @@ class PhilipsPetsSeriesNumber(PhilipsPetsSeriesEntity, NumberEntity):
         self._properties = properties
         self._dp_path = dp_path
         self._attr_unique_id = f"{device.id}_number_{dp_code}"
-        self._attr_name = f"{dp_code.replace('_', ' ').title()} ({device.name})"
+        # Home Assistant already prefixes the device name, so repeating it
+        # here produced names like "Voederbak Video Osd (Voederbak)".
+        self._attr_name = dp_code.replace('_', ' ').capitalize()
         self._attr_native_min_value = properties.get("min", 0)
         self._attr_native_max_value = properties.get("max", 100)
         self._attr_native_step = properties.get("step", 1)
