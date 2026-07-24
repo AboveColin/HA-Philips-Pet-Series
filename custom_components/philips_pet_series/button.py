@@ -5,6 +5,7 @@ import logging
 from homeassistant.components.button import ButtonEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from . import DOMAIN, PhilipsPetsSeriesDataUpdateCoordinator
@@ -72,7 +73,7 @@ class PhilipsPetsSeriesFeedButton(PhilipsPetsSeriesEntity, ButtonEntity):
 
             await self.coordinator.async_request_refresh()
         except Exception as e:
-            _LOGGER.error(f"Failed to execute feed_num for device {self._device.id}: {e}")
+            raise HomeAssistantError(f"Failed to dispense food: {e}") from e
 
 
 class PhilipsPetsSeriesResetFilterButton(PhilipsPetsSeriesEntity, ButtonEntity):
@@ -94,4 +95,4 @@ class PhilipsPetsSeriesResetFilterButton(PhilipsPetsSeriesEntity, ButtonEntity):
             _LOGGER.info(f"Successfully reset filter for device {self._device.id}")
             await self.coordinator.async_request_refresh()
         except Exception as e:
-            _LOGGER.error(f"Failed to reset filter for device {self._device.id}: {e}")
+            raise HomeAssistantError(f"Failed to reset the filter: {e}") from e

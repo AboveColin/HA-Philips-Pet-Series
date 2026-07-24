@@ -1,6 +1,7 @@
 from homeassistant.components.number import NumberEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.entity import EntityCategory
 
@@ -40,11 +41,11 @@ async def async_setup_entry(
                 dp_path = dp_info.get("path", "tuya_status")
 
                 if dp_type == "Integer":
+                    if dp_code == "feed_abnormal":
+                        # A device fault register: read-only by nature, exposed
+                        # as a diagnostic sensor instead of a writable number.
+                        continue
                     if dp_code == "feed_num":
-                        number_entitiy = PhilipsPetsSeriesNumber(
-                            coordinator, client, home, device, str(dp_id), dp_code, dp_info["properties"], dp_path
-                        )
-                    elif dp_code == "feed_abnormal":
                         number_entitiy = PhilipsPetsSeriesNumber(
                             coordinator, client, home, device, str(dp_id), dp_code, dp_info["properties"], dp_path
                         )
@@ -89,13 +90,30 @@ class PhilipsPetsSeriesNumber(PhilipsPetsSeriesEntity, NumberEntity):
                 self._device.id,
                 list(settings.keys()),
             )
-        current_value = settings.get(self._dp_code, self._attr_native_min_value)
+        current_value = self._dp_lookup(settings)
+        if current_value is self._MISSING:
+            return None
         _LOGGER.debug(
             "Number Entity [%s]: current_value = %s",
             self._attr_name,
             current_value,
         )
         return current_value
+
+    _MISSING = object()
+
+    def _dp_lookup(self, settings):
+        """Return the datapoint value, or ``_MISSING`` when absent.
+
+        The cloud status is keyed by numeric datapoint id and only gains the
+        readable dpCode aliases when the alias pass runs, so a lookup by code
+        alone reports the entity unavailable whenever the fallback status dict
+        is in use.  Accept either key.
+        """
+        for key in (self._dp_code, self._dp_id, str(self._dp_id)):
+            if key in settings:
+                return settings[key]
+        return self._MISSING
 
     def _get_settings(self):
         """Retrieve the correct settings dictionary based on dp_path."""
@@ -119,11 +137,9 @@ class PhilipsPetsSeriesNumber(PhilipsPetsSeriesEntity, NumberEntity):
         if not parent_available:
             return False
         settings = self._get_settings()
-        _LOGGER.info(settings)
-        _LOGGER.info(self._dp_code)
-        is_available = self._dp_code in settings
+        is_available = self._dp_lookup(settings) is not self._MISSING
         if not is_available:
-            _LOGGER.warning(
+            _LOGGER.debug(
                 "Number Entity [%s] is unavailable. Device ID: %s, dp_code: %s. Available settings: %s",
                 self._attr_name,
                 self._device.id,
@@ -153,4 +169,6 @@ class PhilipsPetsSeriesNumber(PhilipsPetsSeriesEntity, NumberEntity):
             )
             await self.coordinator.async_request_refresh()
         except Exception as e:
-            _LOGGER.error("Failed to set %s to %s: %s", self._attr_name, value, e)
+            raise HomeAssistantError(
+                f"Failed to set {self._attr_name} to {value}: {e}"
+            ) from e

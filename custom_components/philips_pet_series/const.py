@@ -26,6 +26,7 @@ CONF_HOME_IDS = "home_ids"
 CONF_TIMEZONE = "timezone"
 CONF_LANGUAGE = "language"
 CONF_COUNTRY = "country"
+CONF_CAMERA_MODE = "camera_mode"
 
 # ISO-3166 alpha-2 -> telephone dial code (for the country picker default).
 COUNTRY_DIAL_CODES = {

@@ -18,22 +18,36 @@ class PhilipsPetsSeriesEntity(CoordinatorEntity):
         self._device = device
         self._home = home
 
+    def _definition_version(self):
+        """Firmware version from the Tuya device record, when available."""
+        data = getattr(self.coordinator, "data", None) or {}
+        definition = data.get("device_definitions", {}).get(self._device.id)
+        if not isinstance(definition, dict):
+            return None
+        ota_info = definition.get("otaInfo")
+        if isinstance(ota_info, dict):
+            module_map = ota_info.get("otaModuleMap")
+            if isinstance(module_map, dict):
+                wifi = module_map.get("wifi")
+                if isinstance(wifi, dict) and wifi.get("verSw"):
+                    return wifi["verSw"]
+        return definition.get("verSw")
+
     @property
     def device_info(self):
         """Return device information about this entity."""
-        # Try to find firmware version and model
         # The app treats the WiFi firmware as the primary device version;
         # expose it in the registry while dedicated MCU/WiFi sensors retain
-        # both component values.
+        # both component values.  The OTA endpoints that would populate
+        # wifi_version are often unauthorised for third-party logins, so fall
+        # back to the version reported by the Tuya device record itself.
         sw_version = (
             getattr(self._device, "wifi_version", None)
             or getattr(self._device, "mcu_version", None)
+            or self._definition_version()
             or self._device.product_id
         )
         model = self._device.product_ctn
-
-        # If we have tuya status, we might find version there
-        # (datapoint logic required but keeping broad here)
 
         return DeviceInfo(
             identifiers={(DOMAIN, self._device.id)},

@@ -1,7 +1,9 @@
 import base64
+from datetime import datetime
 import json
 
 from homeassistant.components.sensor import (
+    RestoreSensor,
     SensorEntity,
     SensorDeviceClass,
 )
@@ -21,6 +23,10 @@ from . import DOMAIN, PhilipsPetsSeriesDataUpdateCoordinator
 from .entity import PhilipsPetsSeriesEntity, iter_home_devices
 
 _LOGGER = logging.getLogger(__name__)
+
+# Home Assistant rejects states longer than this, so long raw payloads are
+# truncated into the state and preserved in an attribute.
+_MAX_STATE_LENGTH = 255
 
 # Observed on the PAW5320 cloud status response but not yet semantically
 # mapped from the Philips app. Keep them diagnostic and strictly read-only.
@@ -102,6 +108,29 @@ class PhilipsPetsSeriesFirmwareSensor(PhilipsPetsSeriesEntity, SensorEntity):
         self._attr_entity_category = EntityCategory.DIAGNOSTIC
         self._attr_icon = "mdi:chip" if component == "mcu" else "mdi:wifi"
 
+    def _device_definition(self) -> dict:
+        """Tuya device metadata (``thing.m.device.get``) for this device."""
+        definition = self.coordinator.data.get("device_definitions", {}).get(
+            self._device.id
+        )
+        return definition if isinstance(definition, dict) else {}
+
+    def _ota_module(self) -> dict:
+        """Per-module OTA record for this component, when the device reports one.
+
+        Devices expose ``otaInfo.otaModuleMap`` keyed by module name ("wifi",
+        "mcu").  Feeders without a separate microcontroller only list "wifi",
+        in which case there is genuinely no MCU version to report.
+        """
+        ota_info = self._device_definition().get("otaInfo")
+        if not isinstance(ota_info, dict):
+            return {}
+        module_map = ota_info.get("otaModuleMap")
+        if not isinstance(module_map, dict):
+            return {}
+        module = module_map.get(self._component)
+        return module if isinstance(module, dict) else {}
+
     @property
     def native_value(self):
         ota_type = 9 if self._component == "mcu" else 0
@@ -114,9 +143,22 @@ class PhilipsPetsSeriesFirmwareSensor(PhilipsPetsSeriesEntity, SensorEntity):
         for record in records:
             try:
                 if int(record.get("type", -1)) == ota_type:
-                    return record.get("currentVersion") or record.get("current_version")
+                    version = record.get("currentVersion") or record.get("current_version")
+                    if version:
+                        return version
             except (TypeError, ValueError):
                 continue
+        # The OTA endpoints are frequently unauthorised for third-party logins,
+        # so fall back to the version the device metadata reports directly.
+        module_version = self._ota_module().get("verSw")
+        if module_version:
+            return module_version
+        if self._component == "wifi":
+            # ``verSw`` on the device record is the wireless module firmware,
+            # which is the version the Philips app shows for the device.
+            definition_version = self._device_definition().get("verSw")
+            if definition_version:
+                return definition_version
         value = getattr(self._device, f"{self._component}_version", None)
         if value:
             return value
@@ -189,9 +231,15 @@ class PhilipsPetsSeriesRawDpSensor(PhilipsPetsSeriesEntity, SensorEntity):
         value = self._raw_value
         if value is None:
             return None
-        if isinstance(value, (str, int, float)):
-            return value
-        return str(value)
+        if not isinstance(value, (str, int, float)):
+            value = str(value)
+        # Some datapoints carry base64 blobs (snapshots, history, voice files)
+        # that exceed Home Assistant's 255-character state limit, which would
+        # make the whole entity fail to update.  Keep the state short and put
+        # the full payload in an attribute.
+        if isinstance(value, str) and len(value) > _MAX_STATE_LENGTH:
+            return value[: _MAX_STATE_LENGTH - 1] + "…"
+        return value
 
     @property
     def available(self) -> bool:
@@ -199,7 +247,12 @@ class PhilipsPetsSeriesRawDpSensor(PhilipsPetsSeriesEntity, SensorEntity):
 
     @property
     def extra_state_attributes(self):
-        return {"dp_id": self._dp_id, "read_only": True}
+        attributes = {"dp_id": self._dp_id, "read_only": True}
+        value = self._raw_value
+        if isinstance(value, str) and len(value) > _MAX_STATE_LENGTH:
+            attributes["full_value"] = value
+            attributes["truncated"] = True
+        return attributes
 
 
 class PhilipsPetsSeriesCameraOrientationSensor(PhilipsPetsSeriesEntity, SensorEntity):
@@ -274,8 +327,15 @@ class PhilipsPetsSeriesMotionSnapshotSensor(PhilipsPetsSeriesEntity, SensorEntit
         }
 
 
-class PhilipsPetsSeriesEventSensor(PhilipsPetsSeriesEntity, SensorEntity):
-    """Representation of a Philips Pets Series event sensor."""
+class PhilipsPetsSeriesEventSensor(PhilipsPetsSeriesEntity, RestoreSensor):
+    """When this device last raised a given event.
+
+    Philips only serves a bounded slice of event history, so an event older than
+    that window is absent from the API even though it certainly happened.  The
+    last known timestamp is therefore restored across restarts and only ever
+    moves forward, instead of reverting to "unknown" whenever the event ages out
+    of the query window.
+    """
 
     def __init__(
         self,
@@ -292,34 +352,63 @@ class PhilipsPetsSeriesEventSensor(PhilipsPetsSeriesEntity, SensorEntity):
         self._attr_name = f"Last {self._event_type.replace('eventtype.', ' ').replace('_', ' ').title()} Event"
 
         self._attr_device_class = SensorDeviceClass.TIMESTAMP
+        self._restored_value: datetime | None = None
 
-    @property
-    def state(self):
+    async def async_added_to_hass(self) -> None:
+        """Restore the last known timestamp before the first refresh."""
+        await super().async_added_to_hass()
+        last_data = await self.async_get_last_sensor_data()
+        if last_data is not None and isinstance(last_data.native_value, datetime):
+            self._restored_value = last_data.native_value
+
+    def _latest_event(self):
+        """Return this device's newest event of this type, if any.
+
+        The coordinator indexes events per home, so events raised by other
+        devices in the same home must be filtered out -- otherwise this sensor
+        reports another feeder's timestamp, name and thumbnail.
+        """
         key = f"{self._home.id}_{self._event_type}"
         events = self.coordinator.data.get("events_by_home_and_type", {}).get(key, [])
-        if events:
-            latest_event = max(
-                events,
-                key=lambda event: dt_util.parse_datetime(event.time) or dt_util.utcnow(),
-            )
+        mine = [
+            event
+            for event in events
+            if getattr(event, "device_id", None) is None
+            or str(event.device_id) == str(self._device.id)
+        ]
+        if not mine:
+            return None
+        return max(
+            mine,
+            key=lambda event: dt_util.parse_datetime(event.time) or dt_util.utcnow(),
+        )
+
+    @property
+    def native_value(self):
+        latest_event = self._latest_event()
+        parsed_time = None
+        if latest_event is not None:
             parsed_time = dt_util.parse_datetime(latest_event.time)
-            if parsed_time:
-                return parsed_time.isoformat()
-            else:
+            if parsed_time is None:
                 _LOGGER.warning("Failed to parse event time for %s", self._event_type)
-        return None
+        # Never regress: an event dropping out of the API's history window does
+        # not mean it stopped having happened.
+        candidates = [
+            value for value in (parsed_time, self._restored_value) if value is not None
+        ]
+        if not candidates:
+            return None
+        newest = max(candidates)
+        self._restored_value = newest
+        # Return the datetime itself: HA normalises it for TIMESTAMP sensors.
+        return newest
 
     @property
     def extra_state_attributes(self):
         """Return the state attributes."""
         attributes = {}
-        key = f"{self._home.id}_{self._event_type}"
-        events = self.coordinator.data.get("events_by_home_and_type", {}).get(key, [])
-        if events:
-            latest_event = max(
-                events,
-                key=lambda event: dt_util.parse_datetime(event.time) or dt_util.utcnow(),
-            )
+        latest_event = self._latest_event()
+        if latest_event is not None:
             _LOGGER.debug(f"Latest event: {latest_event}")
             parsed_time = dt_util.parse_datetime(latest_event.time)
             attributes["source"] = latest_event.source
@@ -379,10 +468,6 @@ class PhilipsPetsSeriesEventSensor(PhilipsPetsSeriesEntity, SensorEntity):
     def available(self):
         """Return if the sensor is available."""
         return super().available and self.coordinator.last_update_success
-
-    async def async_update(self):
-        """Update the sensor state."""
-        await self.coordinator.async_request_refresh()
 
 
 class PhilipsPetsSeriesMealSensor(CoordinatorEntity, SensorEntity):
@@ -555,7 +640,12 @@ class PhilipsPetsSeriesDiscoverySensor(CoordinatorEntity, SensorEntity):
     def __init__(self, coordinator):
         """Initialize the discovery sensor."""
         super().__init__(coordinator)
-        self._attr_unique_id = "philips_pet_series_api_version"
+        # Entry-scoped: a bare constant collides when a second account is
+        # configured, and HA then drops the duplicate entity.
+        entry_id = getattr(getattr(coordinator, "config_entry", None), "entry_id", None)
+        self._attr_unique_id = (
+            f"{entry_id}_api_version" if entry_id else "philips_pet_series_api_version"
+        )
         self._attr_name = "Philips Pet Series Cloud Version"
         self._attr_icon = "mdi:cloud-check"
 
