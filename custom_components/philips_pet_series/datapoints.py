@@ -52,13 +52,15 @@ datapoints = {
     "205": {
         "dpCode": "automatic_feed_portions",
         "standardType": "Integer",
-        "properties": {"min": 1, "max": 255, "scale": 0, "step": 1, "mode": "box"},
+        "properties": {"unit": "portions", "min": 1, "max": 255, "scale": 0, "step": 1, "mode": "box"},
         "path": "tuya_status",
     },
     "231": {
         "dpCode": "device_volume",
         "standardType": "Integer",
-        "properties": {"unit": "%", "min": 1, "max": 100, "scale": 1, "step": 1, "mode": "slider"},
+        # The device schema reports scale 0 here; treating it as 1 would show
+        # 80% as 8%.
+        "properties": {"unit": "%", "min": 1, "max": 100, "scale": 0, "step": 1, "mode": "slider"},
         "path": "tuya_status",
     },
     "233": {
@@ -67,7 +69,8 @@ datapoints = {
     "255": {
         "dpCode": "feed_abnormal",
         "standardType": "ReadOnly",
-        "properties": {"unit": "portions", "max": 255, "min": 0, "scale": 0, "step": 1, "mode": "box"},
+        # A fault bitmask ("feeding abnormality"), so it carries no unit.
+        "properties": {"max": 255, "min": 0, "scale": 0, "step": 1, "mode": "box"},
         "path": "tuya_status",
     },
 }

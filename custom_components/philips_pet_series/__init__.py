@@ -45,12 +45,14 @@ from .const import (
     CONF_TIMEZONE,
     COUNTRY_DIAL_CODES,
     DOMAIN,
+    REMOVED_DP_SENSORS,
 )
 from .bridge import PhilipsCameraBridgeManager
 from .datapoints import datapoints
 
 PLATFORMS = [
     Platform.BINARY_SENSOR,
+    Platform.EVENT,
     Platform.SWITCH,
     Platform.SENSOR,
     Platform.SELECT,
@@ -413,6 +415,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     entry.async_on_unload(entry.add_update_listener(_async_update_listener))
 
     _async_migrate_unique_ids(hass, entry)
+    _async_remove_stale_entities(hass, entry)
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
@@ -575,6 +578,26 @@ def _async_migrate_unique_ids(hass: HomeAssistant, entry: ConfigEntry) -> None:
             continue
         _LOGGER.debug("Migrating unique_id %s -> %s", old_unique_id, new_unique_id)
         registry.async_update_entity(entity_id, new_unique_id=new_unique_id)
+
+
+@callback
+def _async_remove_stale_entities(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Delete registry entries this integration no longer provides.
+
+    Entities that stop being created are otherwise restored as permanently
+    unavailable, so dropping a datapoint would leave dead rows behind.
+    """
+    registry = er.async_get(hass)
+    stale_suffixes = tuple(f"_tuya_dp_{dp_id}" for dp_id in REMOVED_DP_SENSORS) + (
+        "_number_food_weight",
+        "_number_feed_abnormal",
+    )
+    for registry_entry in list(registry.entities.values()):
+        if registry_entry.config_entry_id != entry.entry_id:
+            continue
+        if registry_entry.unique_id.endswith(stale_suffixes):
+            _LOGGER.debug("Removing stale entity %s", registry_entry.entity_id)
+            registry.async_remove(registry_entry.entity_id)
 
 
 async def _async_update_listener(hass: HomeAssistant, entry: ConfigEntry) -> None:

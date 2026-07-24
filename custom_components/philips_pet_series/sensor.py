@@ -20,6 +20,8 @@ import logging
 from petsseries.api import PetsSeriesClient
 
 from . import DOMAIN, PhilipsPetsSeriesDataUpdateCoordinator
+from .const import REMOVED_DP_SENSORS  # noqa: F401  (documented alongside _READ_ONLY_TUYA_DPS)
+from .datapoints import datapoints
 from .entity import PhilipsPetsSeriesEntity, iter_home_devices
 
 _LOGGER = logging.getLogger(__name__)
@@ -28,17 +30,32 @@ _LOGGER = logging.getLogger(__name__)
 # truncated into the state and preserved in an attribute.
 _MAX_STATE_LENGTH = 255
 
-# Observed on the PAW5320 cloud status response but not yet semantically
-# mapped from the Philips app. Keep them diagnostic and strictly read-only.
+# Read-only datapoints worth surfacing, named from the device's own schema.
+# Datapoints deliberately left out (see REMOVED_DP_SENSORS in const): command registers
+# and packed integers the device never documents, which only ever produced an
+# opaque number.
 _READ_ONLY_TUYA_DPS = {
-    "202": ("Food weight", "g"),
-    "203": ("Control command", None),
-    "204": ("Realtime device status", None),
-    "206": ("Reported history data", None),
-    "234": ("Voice message file", None),
-    "235": ("Voice message removal", None),
-    "255": ("Feed abnormal status", None),
+    # "grams per portion": the device's portion calibration, so
+    # portions x this = the amount of food dispensed.
+    "202": ("Portion size", "g"),
+    # "feeding abnormality": the fault register the food/outlet problem
+    # sensors use to decide whether a fault is still current.
+    "255": ("Feeding fault", None),
 }
+
+def _has_ota_module(coordinator, device, module: str) -> bool:
+    """Whether the device's metadata reports an OTA module by this name."""
+    definition = coordinator.data.get("device_definitions", {}).get(device.id)
+    if not isinstance(definition, dict):
+        return False
+    ota_info = definition.get("otaInfo")
+    if not isinstance(ota_info, dict):
+        return False
+    module_map = ota_info.get("otaModuleMap")
+    if not isinstance(module_map, dict):
+        return False
+    entry = module_map.get(module)
+    return isinstance(entry, dict) and bool(entry.get("verSw"))
 
 
 async def async_setup_entry(
@@ -65,7 +82,11 @@ async def async_setup_entry(
 
     sensors = []
     for home, device in iter_home_devices(coordinator):
-        sensors.append(PhilipsPetsSeriesFirmwareSensor(coordinator, home, device, "mcu"))
+        # Only offer an MCU version where the hardware reports one; feeders
+        # without a separate microcontroller list a wireless module only, and a
+        # permanently empty sensor is worse than no sensor.
+        if _has_ota_module(coordinator, device, "mcu"):
+            sensors.append(PhilipsPetsSeriesFirmwareSensor(coordinator, home, device, "mcu"))
         sensors.append(PhilipsPetsSeriesFirmwareSensor(coordinator, home, device, "wifi"))
         sensors.extend(
             PhilipsPetsSeriesRawDpSensor(coordinator, home, device, dp_id, name, unit)
@@ -206,7 +227,7 @@ class PhilipsPetsSeriesFirmwareSensor(PhilipsPetsSeriesEntity, SensorEntity):
 
 
 class PhilipsPetsSeriesRawDpSensor(PhilipsPetsSeriesEntity, SensorEntity):
-    """Expose an observed but unmapped Tuya DP without allowing control."""
+    """Expose a read-only Tuya datapoint without allowing control."""
 
     def __init__(self, coordinator, home, device, dp_id: str, name: str, unit: str | None) -> None:
         super().__init__(coordinator, device, home)
@@ -215,7 +236,10 @@ class PhilipsPetsSeriesRawDpSensor(PhilipsPetsSeriesEntity, SensorEntity):
         self._attr_name = name
         self._attr_native_unit_of_measurement = unit
         self._attr_entity_category = EntityCategory.DIAGNOSTIC
-        self._attr_icon = "mdi:code-braces"
+        self._attr_icon = "mdi:scale" if unit == "g" else "mdi:alert-circle-outline"
+        self._scale = int(
+            (datapoints.get(dp_id, {}).get("properties") or {}).get("scale") or 0
+        )
 
     @property
     def _raw_value(self):
@@ -236,6 +260,10 @@ class PhilipsPetsSeriesRawDpSensor(PhilipsPetsSeriesEntity, SensorEntity):
         value = self._raw_value
         if value is None:
             return None
+        # Tuya transmits fixed-point integers: the datapoint's scale says how
+        # many decimal places the raw value carries.
+        if self._scale and isinstance(value, (int, float)) and not isinstance(value, bool):
+            return value / (10 ** self._scale)
         if not isinstance(value, (str, int, float)):
             value = str(value)
         # Some datapoints carry base64 blobs (snapshots, history, voice files)
@@ -583,8 +611,13 @@ class PhilipsPetsSeriesInvitesSensor(CoordinatorEntity, SensorEntity):
         return super().available and self.coordinator.last_update_success
 
 
-class PhilipsPetsSeriesTuyaStatusSensor(CoordinatorEntity, SensorEntity):
-    """Representation of a Philips Pets Series Tuya Status Sensor."""
+class PhilipsPetsSeriesTuyaStatusSensor(PhilipsPetsSeriesEntity, SensorEntity):
+    """Diagnostic dump of the datapoints the Tuya cloud returned.
+
+    Kept for troubleshooting -- its attributes carry the raw and normalised
+    datapoint maps.  Connectivity itself is better read from the
+    ``tuya_cloud_connected`` binary sensor; this entity exists for the payload.
+    """
 
     def __init__(
         self,
@@ -594,13 +627,16 @@ class PhilipsPetsSeriesTuyaStatusSensor(CoordinatorEntity, SensorEntity):
         client: PetsSeriesClient,
     ):
         """Initialize the Tuya status sensor."""
-        super().__init__(coordinator)
+        # Register against the device like every other entity; subclassing the
+        # coordinator entity directly left this orphaned from its device.
+        super().__init__(coordinator, device, home)
         self.home = home
         self.device = device
         self.client = client
         self._attr_unique_id = f"{device.id}_tuya_status"
-        self._attr_name = f"{device.name} Tuya Status"
+        self._attr_name = "Tuya datapoints"
         self._attr_icon = "mdi:cloud"
+        self._attr_entity_category = EntityCategory.DIAGNOSTIC
 
     @property
     def state(self):

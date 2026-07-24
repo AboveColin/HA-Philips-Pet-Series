@@ -44,15 +44,20 @@ async def async_setup_entry(
     async_add_entities(buttons)
 
 class PhilipsPetsSeriesFeedButton(PhilipsPetsSeriesEntity, ButtonEntity):
-    """Representation of a Philips Pets Series feed button."""
+    """Dispense a single portion.
+
+    One press dispenses exactly one portion; the gram weight of a portion is
+    reported by the "Portion size" sensor.  To dispense several portions at
+    once, set the "Dispense portions now" number instead.
+    """
 
     def __init__(self, coordinator, client, home, device):
         """Initialize the feed button."""
         super().__init__(coordinator, device, home)
         self._client = client
         self._attr_unique_id = f"{device.id}_feed_button"
-        self._attr_name = "Feed"
-        self._attr_icon = "mdi:food"
+        self._attr_name = "Feed one portion"
+        self._attr_icon = "mdi:food-drumstick"
         _LOGGER.debug(f"Initialized feed button for device {device.id}")
 
     async def async_press(self) -> None:
