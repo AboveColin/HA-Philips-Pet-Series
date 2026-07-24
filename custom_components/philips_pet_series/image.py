@@ -48,12 +48,30 @@ class PhilipsPetsSeriesMotionImage(PhilipsPetsSeriesEntity, ImageEntity):
              return dt_util.parse_datetime(latest_event.time)
         return None
 
+    @property
+    def available(self) -> bool:
+        """Only report available while there is a snapshot to serve."""
+        return super().available and self._get_latest_event() is not None
+
     def _get_latest_event(self):
+        """Return this device's newest motion event, if any.
+
+        Events are indexed per home, so entries from other devices in the same
+        home have to be filtered out -- otherwise this entity would serve
+        another camera's snapshot.  The API does not guarantee ordering, so pick
+        the newest explicitly instead of trusting the first element.
+        """
         key = f"{self._home.id}_motion_detected"
         events = self.coordinator.data.get("events_by_home_and_type", {}).get(key, [])
-        if events:
-            return events[0]
-        return None
+        mine = [
+            event
+            for event in events
+            if getattr(event, "device_id", None) is None
+            or str(event.device_id) == str(self._device.id)
+        ]
+        if not mine:
+            return None
+        return max(mine, key=lambda event: event.time or "")
 
     async def async_image(self) -> bytes | None:
         """Fetch and decrypt the image."""

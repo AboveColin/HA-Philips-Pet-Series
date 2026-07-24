@@ -10,9 +10,15 @@ from homeassistant.core import HomeAssistant
 
 from .const import DOMAIN
 
+# Key names are matched exactly, so every credential has to be listed in full:
+# "token" does not cover "id_token", which is a live bearer credential able to
+# control the feeder and read the camera.
 TO_REDACT = {
     "access_token",
     "refresh_token",
+    "id_token",
+    "code_verifier",
+    "callback_url",
     "tuya_local_key",
     "client_id",
     "local_key",

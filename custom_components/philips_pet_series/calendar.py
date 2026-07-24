@@ -84,8 +84,10 @@ class PhilipsPetsSeriesCalendar(CalendarEntity):
                 # Try parsing with 'Z' suffix first, then without
                 if meal.feed_time.endswith('Z'):
                     feed_time_naive = datetime.strptime(meal.feed_time, "%H:%MZ").time()
+                    feed_time_is_utc = True
                 else:
                     feed_time_naive = datetime.strptime(meal.feed_time, "%H:%M").time()
+                    feed_time_is_utc = False
             except ValueError as e:
                 _LOGGER.error("Invalid feed_time format for meal '%s': time data '%s' does not match expected format (HH:MM or HH:MMZ)", meal.name, meal.feed_time)
                 continue
@@ -102,9 +104,14 @@ class PhilipsPetsSeriesCalendar(CalendarEntity):
                     event_start = datetime.combine(current_date, feed_time_naive)
                     event_end = event_start + timedelta(minutes=10)
 
-                    # Ensure event_start is timezone-aware in UTC
-                    event_start_utc = dt_util.as_utc(event_start)
-                    event_end_utc = dt_util.as_utc(event_end)
+                    # A trailing 'Z' means the API already reported UTC, so
+                    # attach UTC rather than reinterpreting it as local time.
+                    if feed_time_is_utc:
+                        event_start_utc = event_start.replace(tzinfo=timezone.utc)
+                        event_end_utc = event_end.replace(tzinfo=timezone.utc)
+                    else:
+                        event_start_utc = dt_util.as_utc(event_start)
+                        event_end_utc = dt_util.as_utc(event_end)
 
                     event = CalendarEvent(
                         summary=f"{meal.name} (Portion: {meal.portion_amount})",

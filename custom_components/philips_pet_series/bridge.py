@@ -8,7 +8,8 @@ credentials, RTSP URL, sidecar, qemu process, or manual options are required.
 from __future__ import annotations
 
 import asyncio
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from datetime import timedelta
 import hashlib
 import logging
 import os
@@ -16,7 +17,9 @@ from pathlib import Path
 import platform
 import secrets
 import sys
+import time
 from typing import Any
+from urllib.parse import urlsplit
 
 from aiohttp import web
 from homeassistant.config_entries import ConfigEntry
@@ -24,12 +27,47 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from tuya_mobile import mqtt_client_id, mqtt_credentials
 
+from .const import CONF_CAMERA_MODE
+
 _LOGGER = logging.getLogger(__name__)
 
 BRIDGE_PORT_BASE = 8560
 BRIDGE_PACKAGE = "com.versuni.nbx.petsseries"
 BRIDGE_PARTNER_ID = "p2065237"
 CAMERA_PRODUCT_PREFIXES = ("PAW53",)
+
+# Feeders allow only a small number of simultaneous P2P live sessions, and
+# opening one can evict a session already held by the Philips app.  "on_demand"
+# therefore mirrors the app: hold a session only while something is watching.
+# "always" keeps the RTSP endpoint up permanently, which external consumers
+# (an NVR pulling the stream directly) need; "disabled" never opens a session.
+CAMERA_MODE_ON_DEMAND = "on_demand"
+CAMERA_MODE_ALWAYS = "always"
+CAMERA_MODE_DISABLED = "disabled"
+CAMERA_MODES = (CAMERA_MODE_ON_DEMAND, CAMERA_MODE_ALWAYS, CAMERA_MODE_DISABLED)
+
+# How long an on-demand bridge stays up after the last stream request.  HA's
+# stream component re-requests the source periodically while a viewer is
+# attached, so this only has to outlast the gap between those requests.
+IDLE_TIMEOUT = timedelta(minutes=5)
+_IDLE_CHECK_INTERVAL = 30
+
+# A healthy bridge logs media progress continuously.  If it goes quiet while
+# the process is still alive it has lost its P2P session without exiting, which
+# the exit-driven monitor below would never notice.
+_STALL_TIMEOUT = 120.0
+_HEALTHY_LOG_MARKER = "camera_recv"
+
+# Restart backoff: retrying every few seconds re-mints a cloud session against
+# a device that is already struggling, so back off and eventually give up.
+_RESTART_BACKOFF_START = 5
+_RESTART_BACKOFF_MAX = 300
+_RESTART_MAX_ATTEMPTS = 8
+
+# Tuya's mobile API and MQTT brokers are region-specific and share a host
+# suffix ("a1.tuyaeu.com" -> "m1.tuyaeu.com").
+_DEFAULT_MQTT_HOST = "m1.tuyaeu.com"
+_MQTT_PORT = 8883
 
 
 # The camera bridge binary is cross-compiled in CI and published as release
@@ -60,6 +98,10 @@ class BridgeProcess:
     process: asyncio.subprocess.Process
     log_task: asyncio.Task[None]
     monitor_task: asyncio.Task[None] | None = None
+    # Wall-clock of the last stream request and the last sign of media
+    # progress, used to reap idle sessions and detect stalled ones.
+    last_requested: float = field(default_factory=time.monotonic)
+    last_healthy: float = field(default_factory=time.monotonic)
 
     @property
     def stream_url(self) -> str:
@@ -88,6 +130,18 @@ class PhilipsCameraBridgeManager:
         self._device_ids: set[str] = set()
         self._credential_lock = asyncio.Lock()
         self._stopping = False
+        self._cameras: dict[str, Any] = {}
+        self._ports: dict[str, int] = {}
+        self._start_lock = asyncio.Lock()
+        self._idle_task: asyncio.Task[None] | None = None
+
+    @property
+    def camera_mode(self) -> str:
+        """Return the configured camera streaming mode."""
+        mode = {**self.entry.data, **self.entry.options}.get(
+            CONF_CAMERA_MODE, CAMERA_MODE_ON_DEMAND
+        )
+        return mode if mode in CAMERA_MODES else CAMERA_MODE_ON_DEMAND
 
     @property
     def processes(self) -> dict[str, BridgeProcess]:
@@ -95,7 +149,13 @@ class PhilipsCameraBridgeManager:
         return dict(self._processes)
 
     async def async_start(self) -> None:
-        """Start the private credential endpoint and one bridge per camera."""
+        """Start the private credential endpoint and, if configured, bridges.
+
+        In ``on_demand`` mode no P2P session is opened here: the feeder only
+        tolerates a small number of concurrent sessions and opening one can
+        evict the Philips app, so a session is minted when a stream is actually
+        requested and released once nothing is watching.
+        """
         devices = [
             device
             for device in self.coordinator.data.get("devices", [])
@@ -105,17 +165,89 @@ class PhilipsCameraBridgeManager:
             _LOGGER.info("No Philips camera-capable devices found")
             return
 
+        mode = self.camera_mode
+        if mode == CAMERA_MODE_DISABLED:
+            _LOGGER.info("Camera streaming disabled; no camera bridge started")
+            return
+
+        # Reserve a stable port per device so a bridge started later keeps the
+        # RTSP URL it was first given.
+        for index, device in enumerate(devices):
+            self._cameras[str(device.id)] = device
+            self._ports[str(device.id)] = BRIDGE_PORT_BASE + index
+
         await self._async_start_credential_server()
         try:
-            for index, device in enumerate(devices):
-                await self._async_start_device(device, BRIDGE_PORT_BASE + index)
+            if mode == CAMERA_MODE_ALWAYS:
+                for device in devices:
+                    await self._async_start_device(device, self._ports[str(device.id)])
+            else:
+                self._idle_task = self.hass.async_create_background_task(
+                    self._async_reap_idle(), name=f"{DOMAIN_LOG_PREFIX}-idle-reaper"
+                )
         except Exception:
             await self.async_stop()
             raise
 
+    async def async_get_stream_url(self, device: Any) -> str | None:
+        """Return an RTSP URL, minting an on-demand session when required."""
+        if self._stopping or self.camera_mode == CAMERA_MODE_DISABLED:
+            return None
+        device_key = str(device.id)
+        async with self._start_lock:
+            bridge = self._processes.get(device_key)
+            if bridge is not None and bridge.process.returncode is None:
+                bridge.last_requested = time.monotonic()
+                return bridge.stream_url
+            if self.camera_mode == CAMERA_MODE_ALWAYS:
+                # Supervision owns the lifecycle in this mode, so a missing
+                # bridge means it is mid-restart rather than idle.
+                return None
+            if self._sidecar_port is None:
+                await self._async_start_credential_server()
+            self._cameras.setdefault(device_key, device)
+            port = self._ports.setdefault(
+                device_key, BRIDGE_PORT_BASE + len(self._ports)
+            )
+            try:
+                await self._async_start_device(device, port)
+            except Exception as err:
+                _LOGGER.error("Unable to start camera bridge on demand: %s", err)
+                return None
+            bridge = self._processes.get(device_key)
+            return bridge.stream_url if bridge is not None else None
+
+    async def _async_reap_idle(self) -> None:
+        """Release on-demand sessions once nothing has asked for the stream."""
+        idle_seconds = IDLE_TIMEOUT.total_seconds()
+        while not self._stopping:
+            await asyncio.sleep(_IDLE_CHECK_INTERVAL)
+            now = time.monotonic()
+            for device_key, bridge in list(self._processes.items()):
+                if now - bridge.last_requested < idle_seconds:
+                    continue
+                _LOGGER.debug("Releasing idle camera session for %s", device_key)
+                await self._async_stop_bridge(device_key)
+
+    async def _async_stop_bridge(self, device_key: str) -> None:
+        """Terminate one bridge and release its P2P session."""
+        bridge = self._processes.pop(device_key, None)
+        if bridge is None:
+            return
+        if bridge.monitor_task is not None:
+            bridge.monitor_task.cancel()
+        await self._async_stop_bridge_process(bridge)
+
     async def async_stop(self) -> None:
         """Stop all child processes and remove the credential endpoint."""
         self._stopping = True
+        if self._idle_task is not None:
+            self._idle_task.cancel()
+            try:
+                await self._idle_task
+            except asyncio.CancelledError:
+                pass
+            self._idle_task = None
         processes = list(self._processes.values())
         self._processes.clear()
         for bridge in processes:
@@ -208,7 +340,7 @@ class PhilipsCameraBridgeManager:
                 mqtt["subscribe_topic"] = f"smart/mb/in/{device_id}"
                 webrtc["mqtt"] = {
                     **mqtt,
-                    "broker": "ssl://m1.tuyaeu.com:8883",
+                    "broker": self._mqtt_broker(mobile),
                     "client_id": mqtt_client_id(BRIDGE_PACKAGE),
                     "uid": mobile.uid,
                 }
@@ -216,6 +348,29 @@ class PhilipsCameraBridgeManager:
         except Exception as err:
             _LOGGER.error("Unable to prepare camera bridge credentials: %s", err)
             return web.json_response({"error": "credential refresh failed"}, status=502)
+
+    @staticmethod
+    def _mqtt_broker(mobile: Any) -> str:
+        """Derive the regional MQTT broker from the session's API endpoint.
+
+        Tuya assigns each account to a regional data centre and the mobile API
+        host tracks it ("a1.tuyaeu.com", "a1.tuyaus.com", ...).  The signing
+        client rewrites its endpoint from the login response, so the MQTT broker
+        has to follow it -- pinning the EU broker breaks every other region.
+        """
+        host = ""
+        try:
+            host = urlsplit(getattr(mobile, "mobile_url", "") or "").hostname or ""
+        except ValueError:
+            host = ""
+        labels = host.split(".")
+        if len(labels) >= 2 and labels[-1] and labels[-2]:
+            # Swap only the leading service label ("a1" -> "m1"), keeping the
+            # regional domain intact.
+            broker_host = ".".join(["m1", *labels[1:]])
+        else:
+            broker_host = _DEFAULT_MQTT_HOST
+        return f"ssl://{broker_host}:{_MQTT_PORT}"
 
     def _authorized(self, request: web.Request) -> bool:
         expected = f"Bearer {self._token}"
@@ -281,29 +436,87 @@ class PhilipsCameraBridgeManager:
         _LOGGER.info("Pure-Go camera bridge ready for %s on port %d", device_key, port)
 
     async def _async_monitor(self, device: Any, bridge: BridgeProcess) -> None:
-        """Restart a bridge that exits while its config entry remains loaded."""
-        returncode = await bridge.process.wait()
+        """Supervise a bridge: restart it when it exits, or when it stalls.
+
+        A bridge that loses its P2P session does not necessarily exit, so
+        waiting on the process alone can leave a permanently silent stream.
+        Watch for both conditions and restart with a backoff, since retrying
+        tightly re-mints cloud sessions against a device that is already
+        struggling.
+        """
+        reason = await self._async_wait_for_failure(bridge)
         if self._stopping:
             return
-        current = self._processes.get(bridge.device_key)
-        if current is bridge:
+        if self._processes.get(bridge.device_key) is bridge:
             self._processes.pop(bridge.device_key, None)
-        _LOGGER.error(
-            "Camera bridge for %s exited with status %s; restarting",
-            bridge.device_key,
-            returncode,
-        )
-        while not self._stopping:
-            await asyncio.sleep(5)
+            await self._async_stop_bridge_process(bridge)
+        # An idle on-demand session that was reaped needs no replacement; it is
+        # re-created on the next stream request.
+        if self.camera_mode == CAMERA_MODE_ON_DEMAND and (
+            time.monotonic() - bridge.last_requested >= IDLE_TIMEOUT.total_seconds()
+        ):
+            _LOGGER.debug(
+                "Camera bridge for %s stopped while idle (%s); not restarting",
+                bridge.device_key,
+                reason,
+            )
+            return
+        _LOGGER.error("Camera bridge for %s %s; restarting", bridge.device_key, reason)
+
+        delay = _RESTART_BACKOFF_START
+        for attempt in range(1, _RESTART_MAX_ATTEMPTS + 1):
+            await asyncio.sleep(delay)
+            if self._stopping:
+                return
             try:
                 await self._async_start_device(device, bridge.port)
                 return
             except Exception as err:
                 _LOGGER.error(
-                    "Unable to restart camera bridge for %s: %s",
+                    "Unable to restart camera bridge for %s (attempt %s/%s): %s",
                     bridge.device_key,
+                    attempt,
+                    _RESTART_MAX_ATTEMPTS,
                     err,
                 )
+                delay = min(delay * 2, _RESTART_BACKOFF_MAX)
+        _LOGGER.error(
+            "Giving up on the camera bridge for %s after %s attempts; reload the "
+            "integration to try again",
+            bridge.device_key,
+            _RESTART_MAX_ATTEMPTS,
+        )
+
+    async def _async_wait_for_failure(self, bridge: BridgeProcess) -> str:
+        """Block until the bridge exits or stops making media progress."""
+        waiter = asyncio.ensure_future(bridge.process.wait())
+        try:
+            while True:
+                done, _ = await asyncio.wait({waiter}, timeout=_STALL_TIMEOUT / 4)
+                if waiter in done:
+                    return f"exited with status {waiter.result()}"
+                if self._stopping:
+                    return "stopped"
+                if time.monotonic() - bridge.last_healthy > _STALL_TIMEOUT:
+                    return (
+                        f"stopped delivering media for {_STALL_TIMEOUT:.0f}s "
+                        "(P2P session lost)"
+                    )
+        finally:
+            if not waiter.done():
+                waiter.cancel()
+
+    @staticmethod
+    async def _async_stop_bridge_process(bridge: BridgeProcess) -> None:
+        """Terminate a bridge process and stop tailing its logs."""
+        bridge.log_task.cancel()
+        if bridge.process.returncode is None:
+            bridge.process.terminate()
+            try:
+                await asyncio.wait_for(bridge.process.wait(), timeout=10)
+            except asyncio.TimeoutError:
+                bridge.process.kill()
+                await bridge.process.wait()
 
     async def _async_wait_until_ready(self, bridge: BridgeProcess) -> None:
         for _ in range(100):
@@ -329,6 +542,12 @@ class PhilipsCameraBridgeManager:
         try:
             async for raw_line in process.stdout:
                 line = raw_line.decode(errors="replace").rstrip()
+                # Media progress is the liveness signal the stall watchdog uses;
+                # record it before the log-level filtering below.
+                if _HEALTHY_LOG_MARKER in line and "_len=" in line:
+                    bridge = self._processes.get(device_key)
+                    if bridge is not None:
+                        bridge.last_healthy = time.monotonic()
                 if (
                     "failed to read request line: EOF" in line
                     or "use of closed network connection" in line
