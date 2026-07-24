@@ -52,11 +52,20 @@ CAMERA_MODES = (CAMERA_MODE_ON_DEMAND, CAMERA_MODE_ALWAYS, CAMERA_MODE_DISABLED)
 IDLE_TIMEOUT = timedelta(minutes=5)
 _IDLE_CHECK_INTERVAL = 30
 
-# A healthy bridge logs media progress continuously.  If it goes quiet while
-# the process is still alive it has lost its P2P session without exiting, which
-# the exit-driven monitor below would never notice.
-_STALL_TIMEOUT = 120.0
-_HEALTHY_LOG_MARKER = "camera_recv"
+# A bridge can lose its camera session without exiting, which the exit-driven
+# monitor would never notice.  The binary logs nothing periodically while
+# healthy, so silence cannot be used as a failure signal -- restart only on
+# *evidence* of failure, i.e. repeated fatal log lines in a short window.
+_FAILURE_LOG_PATTERNS = (
+    "failed to start webrtc bridge",
+    "failed to start direct kcp tunnel",
+    "camera did not respond",
+    "ice agent is nil",
+    "could not extract ice credentials",
+    "camera client disconnected",
+)
+_FAILURE_THRESHOLD = 3
+_FAILURE_WINDOW = 60.0
 
 # Restart backoff: retrying every few seconds re-mints a cloud session against
 # a device that is already struggling, so back off and eventually give up.
@@ -98,10 +107,12 @@ class BridgeProcess:
     process: asyncio.subprocess.Process
     log_task: asyncio.Task[None]
     monitor_task: asyncio.Task[None] | None = None
-    # Wall-clock of the last stream request and the last sign of media
-    # progress, used to reap idle sessions and detect stalled ones.
+    # When the stream was last asked for, used to reap idle sessions.
     last_requested: float = field(default_factory=time.monotonic)
-    last_healthy: float = field(default_factory=time.monotonic)
+    # Timestamps of recent fatal log lines, used to spot a bridge that has lost
+    # its camera session while still running.
+    failures: list[float] = field(default_factory=list)
+    failed: asyncio.Event = field(default_factory=asyncio.Event)
 
     @property
     def stream_url(self) -> str:
@@ -487,24 +498,44 @@ class PhilipsCameraBridgeManager:
             _RESTART_MAX_ATTEMPTS,
         )
 
+    def _note_failure_line(self, device_key: str, line: str) -> None:
+        """Flag a bridge whose logs show it has lost the camera session.
+
+        The binary is quiet while healthy, so absence of output means nothing;
+        only repeated fatal lines justify a restart.
+        """
+        lowered = line.lower()
+        if not any(pattern in lowered for pattern in _FAILURE_LOG_PATTERNS):
+            return
+        bridge = self._processes.get(device_key)
+        if bridge is None:
+            return
+        now = time.monotonic()
+        bridge.failures = [
+            stamp for stamp in bridge.failures if now - stamp < _FAILURE_WINDOW
+        ]
+        bridge.failures.append(now)
+        if len(bridge.failures) >= _FAILURE_THRESHOLD:
+            bridge.failed.set()
+
     async def _async_wait_for_failure(self, bridge: BridgeProcess) -> str:
-        """Block until the bridge exits or stops making media progress."""
+        """Block until the bridge exits or reports repeated fatal errors."""
         waiter = asyncio.ensure_future(bridge.process.wait())
+        failed = asyncio.ensure_future(bridge.failed.wait())
         try:
-            while True:
-                done, _ = await asyncio.wait({waiter}, timeout=_STALL_TIMEOUT / 4)
-                if waiter in done:
-                    return f"exited with status {waiter.result()}"
-                if self._stopping:
-                    return "stopped"
-                if time.monotonic() - bridge.last_healthy > _STALL_TIMEOUT:
-                    return (
-                        f"stopped delivering media for {_STALL_TIMEOUT:.0f}s "
-                        "(P2P session lost)"
-                    )
+            done, _ = await asyncio.wait(
+                {waiter, failed}, return_when=asyncio.FIRST_COMPLETED
+            )
+            if waiter in done:
+                return f"exited with status {waiter.result()}"
+            return (
+                f"reported {len(bridge.failures)} stream failures in "
+                f"{_FAILURE_WINDOW:.0f}s (camera session lost)"
+            )
         finally:
-            if not waiter.done():
-                waiter.cancel()
+            for task in (waiter, failed):
+                if not task.done():
+                    task.cancel()
 
     @staticmethod
     async def _async_stop_bridge_process(bridge: BridgeProcess) -> None:
@@ -542,12 +573,7 @@ class PhilipsCameraBridgeManager:
         try:
             async for raw_line in process.stdout:
                 line = raw_line.decode(errors="replace").rstrip()
-                # Media progress is the liveness signal the stall watchdog uses;
-                # record it before the log-level filtering below.
-                if _HEALTHY_LOG_MARKER in line and "_len=" in line:
-                    bridge = self._processes.get(device_key)
-                    if bridge is not None:
-                        bridge.last_healthy = time.monotonic()
+                self._note_failure_line(device_key, line)
                 if (
                     "failed to read request line: EOF" in line
                     or "use of closed network connection" in line
