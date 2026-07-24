@@ -592,10 +592,29 @@ def _async_remove_stale_entities(hass: HomeAssistant, entry: ConfigEntry) -> Non
         "_number_food_weight",
         "_number_feed_abnormal",
     )
+    stale_unique_ids: set[str] = set()
+
+    # The MCU firmware sensor is only created for hardware that reports an MCU
+    # module, so drop it for devices that do not -- but leave it untouched on
+    # devices where it is still provided.
+    coordinator = (hass.data.get(DOMAIN, {}).get(entry.entry_id) or {}).get("coordinator")
+    data = getattr(coordinator, "data", None) or {}
+    for device in data.get("devices", []):
+        definition = data.get("device_definitions", {}).get(device.id)
+        module_map = {}
+        if isinstance(definition, dict) and isinstance(definition.get("otaInfo"), dict):
+            module_map = definition["otaInfo"].get("otaModuleMap") or {}
+        mcu = module_map.get("mcu") if isinstance(module_map, dict) else None
+        if not (isinstance(mcu, dict) and mcu.get("verSw")):
+            stale_unique_ids.add(f"{device.id}_mcu_firmware_version")
+
     for registry_entry in list(registry.entities.values()):
         if registry_entry.config_entry_id != entry.entry_id:
             continue
-        if registry_entry.unique_id.endswith(stale_suffixes):
+        if (
+            registry_entry.unique_id.endswith(stale_suffixes)
+            or registry_entry.unique_id in stale_unique_ids
+        ):
             _LOGGER.debug("Removing stale entity %s", registry_entry.entity_id)
             registry.async_remove(registry_entry.entity_id)
 
