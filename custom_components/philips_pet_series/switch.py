@@ -1,6 +1,9 @@
+from __future__ import annotations
+
 from homeassistant.components.switch import SwitchEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 import logging
@@ -57,8 +60,25 @@ class PhilipsPetsSeriesSwitch(PhilipsPetsSeriesEntity, SwitchEntity):
         self._dp_code = dp_code
         self._dp_path = dp_path
         self._attr_unique_id = f"{device.id}_switch_{dp_code}"
-        self._attr_name = f"{dp_code.replace('_', ' ').title()} ({device.name})"
+        # Home Assistant already prefixes the device name, so repeating it
+        # here produced names like "Voederbak Video Osd (Voederbak)".
+        self._attr_name = dp_code.replace('_', ' ').capitalize()
         self._attr_icon = "mdi:toggle-switch"
+
+    _MISSING = object()
+
+    def _dp_lookup(self, settings):
+        """Return the datapoint value, or ``_MISSING`` when absent.
+
+        The cloud status is keyed by numeric datapoint id and only gains the
+        readable dpCode aliases when the alias pass runs, so a lookup by code
+        alone reports the entity unavailable whenever the fallback status dict
+        is in use.  Accept either key.
+        """
+        for key in (self._dp_code, self._dp_id, str(self._dp_id)):
+            if key in settings:
+                return settings[key]
+        return self._MISSING
 
     def _get_settings(self):
         """Retrieve the correct settings dictionary based on dp_path."""
@@ -68,10 +88,12 @@ class PhilipsPetsSeriesSwitch(PhilipsPetsSeriesEntity, SwitchEntity):
         return device_settings
 
     @property
-    def is_on(self) -> bool:
-        """Return true if the switch is on."""
+    def is_on(self) -> bool | None:
+        """Return true if the switch is on, or None when unknown."""
         settings = self._get_settings()
-        state = settings.get(self._dp_code, False)
+        state = self._dp_lookup(settings)
+        if state is self._MISSING:
+            return None
         _LOGGER.debug(
             "Switch Entity [%s]: is_on = %s",
             self._attr_name,
@@ -83,9 +105,9 @@ class PhilipsPetsSeriesSwitch(PhilipsPetsSeriesEntity, SwitchEntity):
     def available(self):
         """Return True if entity is available."""
         settings = self._get_settings()
-        is_available = self._dp_code in settings
+        is_available = self._dp_lookup(settings) is not self._MISSING
         if not is_available:
-            _LOGGER.warning(
+            _LOGGER.debug(
                 "Switch Entity [%s] is unavailable. Device ID: %s, dp_code: %s",
                 self._attr_name,
                 self._device.id,
@@ -102,7 +124,7 @@ class PhilipsPetsSeriesSwitch(PhilipsPetsSeriesEntity, SwitchEntity):
             )
             await self.coordinator.async_request_refresh()
         except Exception as e:
-            _LOGGER.error("Failed to turn on %s: %s", self._attr_name, e)
+            raise HomeAssistantError(f"Failed to turn on {self._attr_name}: {e}") from e
 
     async def async_turn_off(self, **kwargs):
         """Turn the switch off."""
@@ -113,4 +135,4 @@ class PhilipsPetsSeriesSwitch(PhilipsPetsSeriesEntity, SwitchEntity):
             )
             await self.coordinator.async_request_refresh()
         except Exception as e:
-            _LOGGER.error("Failed to turn off %s: %s", self._attr_name, e)
+            raise HomeAssistantError(f"Failed to turn off {self._attr_name}: {e}") from e

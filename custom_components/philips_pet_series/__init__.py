@@ -12,7 +12,8 @@ from datetime import timedelta
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers import entity_registry as er
 from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryNotReady
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from homeassistant.helpers.storage import Store
@@ -44,12 +45,14 @@ from .const import (
     CONF_TIMEZONE,
     COUNTRY_DIAL_CODES,
     DOMAIN,
+    REMOVED_DP_SENSORS,
 )
 from .bridge import PhilipsCameraBridgeManager
 from .datapoints import datapoints
 
 PLATFORMS = [
     Platform.BINARY_SENSOR,
+    Platform.EVENT,
     Platform.SWITCH,
     Platform.SENSOR,
     Platform.SELECT,
@@ -61,6 +64,10 @@ PLATFORMS = [
 ]
 
 SCAN_INTERVAL = timedelta(minutes=5)
+
+# Days of event history to request.  Enough that entities survive a local
+# midnight rollover and a fault raised late in the evening stays visible.
+EVENT_HISTORY_DAYS = 7
 
 
 class PhilipsPetsSeriesDataUpdateCoordinator(DataUpdateCoordinator):
@@ -149,8 +156,16 @@ class PhilipsPetsSeriesDataUpdateCoordinator(DataUpdateCoordinator):
                 except Exception as err:
                     _LOGGER.warning("Failed to fetch Tuya status: %s", err)
             now = dt_util.now()
-            from_date = now.replace(hour=0, minute=0, second=0, microsecond=0)
-            to_date = from_date + timedelta(days=1)
+            # Look back several days rather than only at today: a midnight-only
+            # window empties every event-derived entity at local midnight, which
+            # made "last event" sensors go unknown and fault conditions clear
+            # themselves on the date rollover instead of when actually resolved.
+            from_date = now.replace(
+                hour=0, minute=0, second=0, microsecond=0
+            ) - timedelta(days=EVENT_HISTORY_DAYS)
+            to_date = now.replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(
+                days=1
+            )
 
             for home in homes:
                 try:
@@ -395,6 +410,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         ) from err
     hass.data[DOMAIN][entry.entry_id]["bridge"] = bridge
 
+    # Camera streaming mode is read at bridge start, so apply option changes by
+    # reloading the entry.
+    entry.async_on_unload(entry.add_update_listener(_async_update_listener))
+
+    _async_migrate_unique_ids(hass, entry)
+    _async_remove_stale_entities(hass, entry)
+
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
     # Register services
@@ -535,6 +557,71 @@ async def async_setup_services(hass: HomeAssistant, client: PetsSeriesClient):
     hass.services.async_register(DOMAIN, "add_device", handle_add_device)
     hass.data.setdefault(DOMAIN, {})["services_registered"] = True
     # hass.services.async_register(DOMAIN, "reset_device_filter", handle_reset_device_filter)
+
+
+@callback
+def _async_migrate_unique_ids(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Re-key entities whose unique_id changed, keeping their history.
+
+    The cloud-version sensor used a fixed unique_id that collided between
+    accounts.  Renaming it in place preserves the existing entity instead of
+    orphaning it and creating a duplicate alongside.
+    """
+    registry = er.async_get(hass)
+    migrations = (("sensor", "philips_pet_series_api_version", f"{entry.entry_id}_api_version"),)
+    for domain, old_unique_id, new_unique_id in migrations:
+        entity_id = registry.async_get_entity_id(domain, DOMAIN, old_unique_id)
+        if entity_id is None:
+            continue
+        if registry.async_get_entity_id(domain, DOMAIN, new_unique_id) is not None:
+            # The new id already exists; leave both alone rather than clashing.
+            continue
+        _LOGGER.debug("Migrating unique_id %s -> %s", old_unique_id, new_unique_id)
+        registry.async_update_entity(entity_id, new_unique_id=new_unique_id)
+
+
+@callback
+def _async_remove_stale_entities(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Delete registry entries this integration no longer provides.
+
+    Entities that stop being created are otherwise restored as permanently
+    unavailable, so dropping a datapoint would leave dead rows behind.
+    """
+    registry = er.async_get(hass)
+    stale_suffixes = tuple(f"_tuya_dp_{dp_id}" for dp_id in REMOVED_DP_SENSORS) + (
+        "_number_food_weight",
+        "_number_feed_abnormal",
+    )
+    stale_unique_ids: set[str] = set()
+
+    # The MCU firmware sensor is only created for hardware that reports an MCU
+    # module, so drop it for devices that do not -- but leave it untouched on
+    # devices where it is still provided.
+    coordinator = (hass.data.get(DOMAIN, {}).get(entry.entry_id) or {}).get("coordinator")
+    data = getattr(coordinator, "data", None) or {}
+    for device in data.get("devices", []):
+        definition = data.get("device_definitions", {}).get(device.id)
+        module_map = {}
+        if isinstance(definition, dict) and isinstance(definition.get("otaInfo"), dict):
+            module_map = definition["otaInfo"].get("otaModuleMap") or {}
+        mcu = module_map.get("mcu") if isinstance(module_map, dict) else None
+        if not (isinstance(mcu, dict) and mcu.get("verSw")):
+            stale_unique_ids.add(f"{device.id}_mcu_firmware_version")
+
+    for registry_entry in list(registry.entities.values()):
+        if registry_entry.config_entry_id != entry.entry_id:
+            continue
+        if (
+            registry_entry.unique_id.endswith(stale_suffixes)
+            or registry_entry.unique_id in stale_unique_ids
+        ):
+            _LOGGER.debug("Removing stale entity %s", registry_entry.entity_id)
+            registry.async_remove(registry_entry.entity_id)
+
+
+async def _async_update_listener(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Reload the entry when its options change."""
+    await hass.config_entries.async_reload(entry.entry_id)
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:

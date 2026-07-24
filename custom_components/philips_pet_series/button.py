@@ -5,6 +5,7 @@ import logging
 from homeassistant.components.button import ButtonEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from . import DOMAIN, PhilipsPetsSeriesDataUpdateCoordinator
@@ -43,15 +44,20 @@ async def async_setup_entry(
     async_add_entities(buttons)
 
 class PhilipsPetsSeriesFeedButton(PhilipsPetsSeriesEntity, ButtonEntity):
-    """Representation of a Philips Pets Series feed button."""
+    """Dispense a single portion.
+
+    One press dispenses exactly one portion; the gram weight of a portion is
+    reported by the "Portion size" sensor.  To dispense several portions at
+    once, set the "Dispense portions now" number instead.
+    """
 
     def __init__(self, coordinator, client, home, device):
         """Initialize the feed button."""
         super().__init__(coordinator, device, home)
         self._client = client
         self._attr_unique_id = f"{device.id}_feed_button"
-        self._attr_name = f"Feed {device.name}"
-        self._attr_icon = "mdi:food"
+        self._attr_name = "Feed one portion"
+        self._attr_icon = "mdi:food-drumstick"
         _LOGGER.debug(f"Initialized feed button for device {device.id}")
 
     async def async_press(self) -> None:
@@ -72,7 +78,7 @@ class PhilipsPetsSeriesFeedButton(PhilipsPetsSeriesEntity, ButtonEntity):
 
             await self.coordinator.async_request_refresh()
         except Exception as e:
-            _LOGGER.error(f"Failed to execute feed_num for device {self._device.id}: {e}")
+            raise HomeAssistantError(f"Failed to dispense food: {e}") from e
 
 
 class PhilipsPetsSeriesResetFilterButton(PhilipsPetsSeriesEntity, ButtonEntity):
@@ -83,7 +89,7 @@ class PhilipsPetsSeriesResetFilterButton(PhilipsPetsSeriesEntity, ButtonEntity):
         super().__init__(coordinator, device, home)
         self._client = client
         self._attr_unique_id = f"{device.id}_reset_filter_button"
-        self._attr_name = f"Reset Filter {device.name}"
+        self._attr_name = "Reset filter"
         self._attr_icon = "mdi:filter-remove"
 
     async def async_press(self) -> None:
@@ -94,4 +100,4 @@ class PhilipsPetsSeriesResetFilterButton(PhilipsPetsSeriesEntity, ButtonEntity):
             _LOGGER.info(f"Successfully reset filter for device {self._device.id}")
             await self.coordinator.async_request_refresh()
         except Exception as e:
-            _LOGGER.error(f"Failed to reset filter for device {self._device.id}: {e}")
+            raise HomeAssistantError(f"Failed to reset the filter: {e}") from e

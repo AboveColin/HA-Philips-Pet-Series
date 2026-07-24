@@ -1,7 +1,9 @@
 import base64
+from datetime import datetime
 import json
 
 from homeassistant.components.sensor import (
+    RestoreSensor,
     SensorEntity,
     SensorDeviceClass,
 )
@@ -18,21 +20,52 @@ import logging
 from petsseries.api import PetsSeriesClient
 
 from . import DOMAIN, PhilipsPetsSeriesDataUpdateCoordinator
+from .const import REMOVED_DP_SENSORS  # noqa: F401  (documented alongside _READ_ONLY_TUYA_DPS)
+from .datapoints import datapoints
 from .entity import PhilipsPetsSeriesEntity, iter_home_devices
 
 _LOGGER = logging.getLogger(__name__)
 
-# Observed on the PAW5320 cloud status response but not yet semantically
-# mapped from the Philips app. Keep them diagnostic and strictly read-only.
+# Home Assistant rejects states longer than this, so long raw payloads are
+# truncated into the state and preserved in an attribute.
+_MAX_STATE_LENGTH = 255
+
+# Read-only datapoints worth surfacing, named from the device's own schema.
+# Datapoints deliberately left out (see REMOVED_DP_SENSORS in const): command registers
+# and packed integers the device never documents, which only ever produced an
+# opaque number.
 _READ_ONLY_TUYA_DPS = {
-    "202": ("Food weight", "g"),
-    "203": ("Control command", None),
-    "204": ("Realtime device status", None),
+    # "grams per portion": the device's portion calibration, so
+    # portions x this = the amount of food dispensed.
+    "202": ("Portion size", "g"),
+    # "feeding abnormality": the fault register the food/outlet problem
+    # sensors use to decide whether a fault is still current.
+    "255": ("Feeding fault", None),
+    # "reported history data": a packed feeding record whose encoding Philips
+    # does not publish.  Recorded history shows it does change around feeding
+    # (observed 256/512/768, i.e. n << 8), so it is kept for anyone wanting to
+    # decode it -- but disabled by default, since an opaque integer is not
+    # useful on a dashboard.
     "206": ("Reported history data", None),
-    "234": ("Voice message file", None),
-    "235": ("Voice message removal", None),
-    "255": ("Feed abnormal status", None),
 }
+
+# Datapoints surfaced only for diagnosis; created disabled so they do not clutter
+# the device page unless somebody deliberately turns them on.
+_DISABLED_BY_DEFAULT_DPS = ("206",)
+
+def _has_ota_module(coordinator, device, module: str) -> bool:
+    """Whether the device's metadata reports an OTA module by this name."""
+    definition = coordinator.data.get("device_definitions", {}).get(device.id)
+    if not isinstance(definition, dict):
+        return False
+    ota_info = definition.get("otaInfo")
+    if not isinstance(ota_info, dict):
+        return False
+    module_map = ota_info.get("otaModuleMap")
+    if not isinstance(module_map, dict):
+        return False
+    entry = module_map.get(module)
+    return isinstance(entry, dict) and bool(entry.get("verSw"))
 
 
 async def async_setup_entry(
@@ -59,7 +92,11 @@ async def async_setup_entry(
 
     sensors = []
     for home, device in iter_home_devices(coordinator):
-        sensors.append(PhilipsPetsSeriesFirmwareSensor(coordinator, home, device, "mcu"))
+        # Only offer an MCU version where the hardware reports one; feeders
+        # without a separate microcontroller list a wireless module only, and a
+        # permanently empty sensor is worse than no sensor.
+        if _has_ota_module(coordinator, device, "mcu"):
+            sensors.append(PhilipsPetsSeriesFirmwareSensor(coordinator, home, device, "mcu"))
         sensors.append(PhilipsPetsSeriesFirmwareSensor(coordinator, home, device, "wifi"))
         sensors.extend(
             PhilipsPetsSeriesRawDpSensor(coordinator, home, device, dp_id, name, unit)
@@ -102,6 +139,29 @@ class PhilipsPetsSeriesFirmwareSensor(PhilipsPetsSeriesEntity, SensorEntity):
         self._attr_entity_category = EntityCategory.DIAGNOSTIC
         self._attr_icon = "mdi:chip" if component == "mcu" else "mdi:wifi"
 
+    def _device_definition(self) -> dict:
+        """Tuya device metadata (``thing.m.device.get``) for this device."""
+        definition = self.coordinator.data.get("device_definitions", {}).get(
+            self._device.id
+        )
+        return definition if isinstance(definition, dict) else {}
+
+    def _ota_module(self) -> dict:
+        """Per-module OTA record for this component, when the device reports one.
+
+        Devices expose ``otaInfo.otaModuleMap`` keyed by module name ("wifi",
+        "mcu").  Feeders without a separate microcontroller only list "wifi",
+        in which case there is genuinely no MCU version to report.
+        """
+        ota_info = self._device_definition().get("otaInfo")
+        if not isinstance(ota_info, dict):
+            return {}
+        module_map = ota_info.get("otaModuleMap")
+        if not isinstance(module_map, dict):
+            return {}
+        module = module_map.get(self._component)
+        return module if isinstance(module, dict) else {}
+
     @property
     def native_value(self):
         ota_type = 9 if self._component == "mcu" else 0
@@ -114,9 +174,22 @@ class PhilipsPetsSeriesFirmwareSensor(PhilipsPetsSeriesEntity, SensorEntity):
         for record in records:
             try:
                 if int(record.get("type", -1)) == ota_type:
-                    return record.get("currentVersion") or record.get("current_version")
+                    version = record.get("currentVersion") or record.get("current_version")
+                    if version:
+                        return version
             except (TypeError, ValueError):
                 continue
+        # The OTA endpoints are frequently unauthorised for third-party logins,
+        # so fall back to the version the device metadata reports directly.
+        module_version = self._ota_module().get("verSw")
+        if module_version:
+            return module_version
+        if self._component == "wifi":
+            # ``verSw`` on the device record is the wireless module firmware,
+            # which is the version the Philips app shows for the device.
+            definition_version = self._device_definition().get("verSw")
+            if definition_version:
+                return definition_version
         value = getattr(self._device, f"{self._component}_version", None)
         if value:
             return value
@@ -164,7 +237,7 @@ class PhilipsPetsSeriesFirmwareSensor(PhilipsPetsSeriesEntity, SensorEntity):
 
 
 class PhilipsPetsSeriesRawDpSensor(PhilipsPetsSeriesEntity, SensorEntity):
-    """Expose an observed but unmapped Tuya DP without allowing control."""
+    """Expose a read-only Tuya datapoint without allowing control."""
 
     def __init__(self, coordinator, home, device, dp_id: str, name: str, unit: str | None) -> None:
         super().__init__(coordinator, device, home)
@@ -173,25 +246,45 @@ class PhilipsPetsSeriesRawDpSensor(PhilipsPetsSeriesEntity, SensorEntity):
         self._attr_name = name
         self._attr_native_unit_of_measurement = unit
         self._attr_entity_category = EntityCategory.DIAGNOSTIC
-        self._attr_icon = "mdi:code-braces"
+        self._attr_icon = "mdi:scale" if unit == "g" else "mdi:alert-circle-outline"
+        if dp_id in _DISABLED_BY_DEFAULT_DPS:
+            self._attr_entity_registry_enabled_default = False
+        self._scale = int(
+            (datapoints.get(dp_id, {}).get("properties") or {}).get("scale") or 0
+        )
 
     @property
     def _raw_value(self):
-        return (
+        value = (
             self.coordinator.data.get("settings", {})
             .get(self._device.id, {})
             .get("tuya_status", {})
             .get(self._dp_id)
         )
+        # Several datapoints report an empty string when they hold nothing;
+        # that is an absent value, not a state of "".
+        if isinstance(value, str) and not value.strip():
+            return None
+        return value
 
     @property
     def native_value(self):
         value = self._raw_value
         if value is None:
             return None
-        if isinstance(value, (str, int, float)):
-            return value
-        return str(value)
+        # Tuya transmits fixed-point integers: the datapoint's scale says how
+        # many decimal places the raw value carries.
+        if self._scale and isinstance(value, (int, float)) and not isinstance(value, bool):
+            return value / (10 ** self._scale)
+        if not isinstance(value, (str, int, float)):
+            value = str(value)
+        # Some datapoints carry base64 blobs (snapshots, history, voice files)
+        # that exceed Home Assistant's 255-character state limit, which would
+        # make the whole entity fail to update.  Keep the state short and put
+        # the full payload in an attribute.
+        if isinstance(value, str) and len(value) > _MAX_STATE_LENGTH:
+            return value[: _MAX_STATE_LENGTH - 1] + "…"
+        return value
 
     @property
     def available(self) -> bool:
@@ -199,7 +292,12 @@ class PhilipsPetsSeriesRawDpSensor(PhilipsPetsSeriesEntity, SensorEntity):
 
     @property
     def extra_state_attributes(self):
-        return {"dp_id": self._dp_id, "read_only": True}
+        attributes = {"dp_id": self._dp_id, "read_only": True}
+        value = self._raw_value
+        if isinstance(value, str) and len(value) > _MAX_STATE_LENGTH:
+            attributes["full_value"] = value
+            attributes["truncated"] = True
+        return attributes
 
 
 class PhilipsPetsSeriesCameraOrientationSensor(PhilipsPetsSeriesEntity, SensorEntity):
@@ -274,8 +372,15 @@ class PhilipsPetsSeriesMotionSnapshotSensor(PhilipsPetsSeriesEntity, SensorEntit
         }
 
 
-class PhilipsPetsSeriesEventSensor(PhilipsPetsSeriesEntity, SensorEntity):
-    """Representation of a Philips Pets Series event sensor."""
+class PhilipsPetsSeriesEventSensor(PhilipsPetsSeriesEntity, RestoreSensor):
+    """When this device last raised a given event.
+
+    Philips only serves a bounded slice of event history, so an event older than
+    that window is absent from the API even though it certainly happened.  The
+    last known timestamp is therefore restored across restarts and only ever
+    moves forward, instead of reverting to "unknown" whenever the event ages out
+    of the query window.
+    """
 
     def __init__(
         self,
@@ -292,34 +397,63 @@ class PhilipsPetsSeriesEventSensor(PhilipsPetsSeriesEntity, SensorEntity):
         self._attr_name = f"Last {self._event_type.replace('eventtype.', ' ').replace('_', ' ').title()} Event"
 
         self._attr_device_class = SensorDeviceClass.TIMESTAMP
+        self._restored_value: datetime | None = None
 
-    @property
-    def state(self):
+    async def async_added_to_hass(self) -> None:
+        """Restore the last known timestamp before the first refresh."""
+        await super().async_added_to_hass()
+        last_data = await self.async_get_last_sensor_data()
+        if last_data is not None and isinstance(last_data.native_value, datetime):
+            self._restored_value = last_data.native_value
+
+    def _latest_event(self):
+        """Return this device's newest event of this type, if any.
+
+        The coordinator indexes events per home, so events raised by other
+        devices in the same home must be filtered out -- otherwise this sensor
+        reports another feeder's timestamp, name and thumbnail.
+        """
         key = f"{self._home.id}_{self._event_type}"
         events = self.coordinator.data.get("events_by_home_and_type", {}).get(key, [])
-        if events:
-            latest_event = max(
-                events,
-                key=lambda event: dt_util.parse_datetime(event.time) or dt_util.utcnow(),
-            )
+        mine = [
+            event
+            for event in events
+            if getattr(event, "device_id", None) is None
+            or str(event.device_id) == str(self._device.id)
+        ]
+        if not mine:
+            return None
+        return max(
+            mine,
+            key=lambda event: dt_util.parse_datetime(event.time) or dt_util.utcnow(),
+        )
+
+    @property
+    def native_value(self):
+        latest_event = self._latest_event()
+        parsed_time = None
+        if latest_event is not None:
             parsed_time = dt_util.parse_datetime(latest_event.time)
-            if parsed_time:
-                return parsed_time.isoformat()
-            else:
+            if parsed_time is None:
                 _LOGGER.warning("Failed to parse event time for %s", self._event_type)
-        return None
+        # Never regress: an event dropping out of the API's history window does
+        # not mean it stopped having happened.
+        candidates = [
+            value for value in (parsed_time, self._restored_value) if value is not None
+        ]
+        if not candidates:
+            return None
+        newest = max(candidates)
+        self._restored_value = newest
+        # Return the datetime itself: HA normalises it for TIMESTAMP sensors.
+        return newest
 
     @property
     def extra_state_attributes(self):
         """Return the state attributes."""
         attributes = {}
-        key = f"{self._home.id}_{self._event_type}"
-        events = self.coordinator.data.get("events_by_home_and_type", {}).get(key, [])
-        if events:
-            latest_event = max(
-                events,
-                key=lambda event: dt_util.parse_datetime(event.time) or dt_util.utcnow(),
-            )
+        latest_event = self._latest_event()
+        if latest_event is not None:
             _LOGGER.debug(f"Latest event: {latest_event}")
             parsed_time = dt_util.parse_datetime(latest_event.time)
             attributes["source"] = latest_event.source
@@ -379,10 +513,6 @@ class PhilipsPetsSeriesEventSensor(PhilipsPetsSeriesEntity, SensorEntity):
     def available(self):
         """Return if the sensor is available."""
         return super().available and self.coordinator.last_update_success
-
-    async def async_update(self):
-        """Update the sensor state."""
-        await self.coordinator.async_request_refresh()
 
 
 class PhilipsPetsSeriesMealSensor(CoordinatorEntity, SensorEntity):
@@ -493,8 +623,13 @@ class PhilipsPetsSeriesInvitesSensor(CoordinatorEntity, SensorEntity):
         return super().available and self.coordinator.last_update_success
 
 
-class PhilipsPetsSeriesTuyaStatusSensor(CoordinatorEntity, SensorEntity):
-    """Representation of a Philips Pets Series Tuya Status Sensor."""
+class PhilipsPetsSeriesTuyaStatusSensor(PhilipsPetsSeriesEntity, SensorEntity):
+    """Diagnostic dump of the datapoints the Tuya cloud returned.
+
+    Kept for troubleshooting -- its attributes carry the raw and normalised
+    datapoint maps.  Connectivity itself is better read from the
+    ``tuya_cloud_connected`` binary sensor; this entity exists for the payload.
+    """
 
     def __init__(
         self,
@@ -504,13 +639,16 @@ class PhilipsPetsSeriesTuyaStatusSensor(CoordinatorEntity, SensorEntity):
         client: PetsSeriesClient,
     ):
         """Initialize the Tuya status sensor."""
-        super().__init__(coordinator)
+        # Register against the device like every other entity; subclassing the
+        # coordinator entity directly left this orphaned from its device.
+        super().__init__(coordinator, device, home)
         self.home = home
         self.device = device
         self.client = client
         self._attr_unique_id = f"{device.id}_tuya_status"
-        self._attr_name = f"{device.name} Tuya Status"
+        self._attr_name = "Tuya datapoints"
         self._attr_icon = "mdi:cloud"
+        self._attr_entity_category = EntityCategory.DIAGNOSTIC
 
     @property
     def state(self):
@@ -555,7 +693,12 @@ class PhilipsPetsSeriesDiscoverySensor(CoordinatorEntity, SensorEntity):
     def __init__(self, coordinator):
         """Initialize the discovery sensor."""
         super().__init__(coordinator)
-        self._attr_unique_id = "philips_pet_series_api_version"
+        # Entry-scoped: a bare constant collides when a second account is
+        # configured, and HA then drops the duplicate entity.
+        entry_id = getattr(getattr(coordinator, "config_entry", None), "entry_id", None)
+        self._attr_unique_id = (
+            f"{entry_id}_api_version" if entry_id else "philips_pet_series_api_version"
+        )
         self._attr_name = "Philips Pet Series Cloud Version"
         self._attr_icon = "mdi:cloud-check"
 
@@ -564,8 +707,10 @@ class PhilipsPetsSeriesDiscoverySensor(CoordinatorEntity, SensorEntity):
         """Return the current android version as a proxy for API version."""
         config = self.coordinator.data.get("base_data", {}).get("discovery_config")
         if config and config.android_release:
-            return config.android_release.current_version
-        return "Unknown"
+            # Report unknown rather than a literal "Unknown"/"" so templates can
+            # test the state properly.
+            return config.android_release.current_version or None
+        return None
 
     @property
     def extra_state_attributes(self):
