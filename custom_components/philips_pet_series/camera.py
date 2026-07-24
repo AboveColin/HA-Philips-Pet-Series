@@ -11,6 +11,7 @@ from homeassistant.util import dt as dt_util
 
 import logging
 from . import DOMAIN, PhilipsPetsSeriesDataUpdateCoordinator
+from .bridge import CAMERA_MODE_DISABLED
 from .entity import PhilipsPetsSeriesEntity, iter_home_devices
 from petsseries.crypto import decrypt_image
 
@@ -63,16 +64,40 @@ class PhilipsPetsSeriesCamera(PhilipsPetsSeriesEntity, Camera):
         self._attr_icon = "mdi:cctv"
         self._entry = entry
         self._bridge = bridge
-        self._stream_url = self._bridge.stream_url(device)
-        if self._stream_url:
+        # A session is minted on demand, so advertise streaming support unless
+        # the camera bridge is switched off entirely.
+        if bridge.camera_mode != CAMERA_MODE_DISABLED:
             self._attr_supported_features = CameraEntityFeature.STREAM
 
+    @property
+    def is_streaming(self) -> bool:
+        """Whether a live camera session is currently held for this device.
+
+        Without this the entity reports "idle" permanently, because nothing else
+        ever sets the flag.  Tracking the bridge makes the state meaningful: it
+        shows when the feeder's single live session is actually in use.
+        """
+        bridge = self._bridge.processes.get(str(self._device.id))
+        return bridge is not None and bridge.process.returncode is None
+
     def _get_latest_event(self):
+        """Return this device's most recent motion event, if any.
+
+        The coordinator indexes events per home, so entries belonging to other
+        devices in the same home have to be filtered out, and the newest event
+        picked explicitly rather than assuming the API returns them sorted.
+        """
         key = f"{self._home.id}_motion_detected"
         events = self.coordinator.data.get("events_by_home_and_type", {}).get(key, [])
-        if events:
-            return events[0]
-        return None
+        mine = [
+            event
+            for event in events
+            if getattr(event, "device_id", None) is None
+            or str(event.device_id) == str(self._device.id)
+        ]
+        if not mine:
+            return None
+        return max(mine, key=lambda event: event.time or "")
 
     async def async_camera_image(
         self, width: int | None = None, height: int | None = None
@@ -102,5 +127,15 @@ class PhilipsPetsSeriesCamera(PhilipsPetsSeriesEntity, Camera):
             return None
 
     async def stream_source(self) -> str | None:
-        """Return the integration-managed RTSP stream URL."""
-        return self._stream_url
+        """Return the integration-managed RTSP stream URL.
+
+        Home Assistant calls this each time a viewer needs the stream, which
+        doubles as the keep-alive for an on-demand P2P session.
+        """
+        was_streaming = self.is_streaming
+        url = await self._bridge.async_get_stream_url(self._device)
+        # Starting a session changes this entity's state; publish it now rather
+        # than waiting for the next coordinator refresh.
+        if self.is_streaming != was_streaming:
+            self.async_write_ha_state()
+        return url

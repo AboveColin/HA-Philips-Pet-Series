@@ -15,8 +15,10 @@ from petsseries.auth import AuthError, AuthManager  # type: ignore[import-not-fo
 from homeassistant.helpers import selector  # type: ignore[import-not-found]
 from zoneinfo import available_timezones
 
+from .bridge import CAMERA_MODE_ON_DEMAND, CAMERA_MODES
 from .const import (
     CONF_ACCESS_TOKEN,
+    CONF_CAMERA_MODE,
     CONF_COUNTRY,
     CONF_HOME_IDS,
     CONF_ID_TOKEN,
@@ -60,6 +62,13 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):  # type: ignore[call
     """Handle Philips login using an emailed one-time code."""
 
     VERSION = 4
+
+    @staticmethod
+    def async_get_options_flow(
+        config_entry: config_entries.ConfigEntry,
+    ) -> "OptionsFlowHandler":
+        """Return the options flow for camera-streaming behaviour."""
+        return OptionsFlowHandler()
 
     def __init__(self) -> None:
         self._auth: Optional[AuthManager] = None
@@ -147,10 +156,15 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):  # type: ignore[call
     async def async_step_settings(
         self, user_input: Optional[Dict[str, Any]] = None
     ) -> FlowResult:
-        """Collect regional settings, pre-filled from Home Assistant's own config.
+        """Collect regional settings and the camera mode.
 
         timezone / language / country are sent in the Tuya mobile-app requests so
         they match the account holder — nothing region-specific is hardcoded.
+
+        The camera mode is asked here as well as in the options: the default
+        suits most people, but anyone pointing an external recorder at the
+        stream needs "always", and would otherwise have to discover that setting
+        after their recording had already stopped working.
         """
         if user_input is not None:
             return self.async_create_entry(
@@ -175,6 +189,15 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):  # type: ignore[call
                 vol.Required(
                     CONF_COUNTRY, default=country_default
                 ): selector.CountrySelector(selector.CountrySelectorConfig()),
+                vol.Required(
+                    CONF_CAMERA_MODE, default=CAMERA_MODE_ON_DEMAND
+                ): selector.SelectSelector(
+                    selector.SelectSelectorConfig(
+                        options=list(CAMERA_MODES),
+                        translation_key="camera_mode",
+                        mode=selector.SelectSelectorMode.DROPDOWN,
+                    )
+                ),
             }
         )
         return self.async_show_form(step_id="settings", data_schema=schema)
@@ -314,3 +337,32 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):  # type: ignore[call
             errors=errors,
             description_placeholders={"email": self._email},
         )
+
+
+class OptionsFlowHandler(config_entries.OptionsFlow):
+    """Adjust behaviour that does not require re-authentication."""
+
+    async def async_step_init(
+        self, user_input: Optional[Dict[str, Any]] = None
+    ) -> FlowResult:
+        if user_input is not None:
+            return self.async_create_entry(title="", data=user_input)
+        current = {**self.config_entry.data, **self.config_entry.options}.get(
+            CONF_CAMERA_MODE, CAMERA_MODE_ON_DEMAND
+        )
+        if current not in CAMERA_MODES:
+            current = CAMERA_MODE_ON_DEMAND
+        schema = vol.Schema(
+            {
+                vol.Required(
+                    CONF_CAMERA_MODE, default=current
+                ): selector.SelectSelector(
+                    selector.SelectSelectorConfig(
+                        options=list(CAMERA_MODES),
+                        translation_key="camera_mode",
+                        mode=selector.SelectSelectorMode.DROPDOWN,
+                    )
+                ),
+            }
+        )
+        return self.async_show_form(step_id="init", data_schema=schema)

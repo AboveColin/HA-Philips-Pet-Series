@@ -84,7 +84,11 @@
         "data": {
           "timezone": "Time zone",
           "language": "Language",
-          "country": "Country"
+          "country": "Country",
+          "camera_mode": "Camera streaming"
+        },
+        "data_description": {
+          "camera_mode": "The feeder allows only a few simultaneous camera connections, and opening one can disconnect the Philips app. 'Only while watching' connects on demand (recommended). Choose 'Always on' if something outside Home Assistant records the stream continuously, such as an NVR. 'Off' never connects to the camera."
         }
       }
     },
@@ -100,6 +104,28 @@
       "unknown_entry": "The configuration entry is unknown.",
       "reauth_successful": "Re-authentication successful! Your tokens have been updated.",
       "reconfigure_successful": "Reconfiguration successful!"
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Philips Pets Series options",
+        "data": {
+          "camera_mode": "Camera streaming"
+        },
+        "data_description": {
+          "camera_mode": "The feeder allows only a few simultaneous camera connections, and opening one can disconnect the Philips app. 'Only while watching' connects on demand (recommended). 'Always on' keeps the stream up permanently, which external recorders need. 'Off' never connects to the camera."
+        }
+      }
+    }
+  },
+  "selector": {
+    "camera_mode": {
+      "options": {
+        "on_demand": "Only while watching (recommended)",
+        "always": "Always on",
+        "disabled": "Off"
+      }
     }
   }
 }

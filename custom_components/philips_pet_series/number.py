@@ -1,6 +1,7 @@
 from homeassistant.components.number import NumberEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.entity import EntityCategory
 
@@ -13,6 +14,25 @@ from .entity import PhilipsPetsSeriesEntity, iter_home_devices
 from .datapoints import datapoints
 
 _LOGGER = logging.getLogger(__name__)
+
+# Names taken from the device's own datapoint schema, which is clearer than the
+# raw codes:
+#   feed_num (201)                "feeder - dispense food": writing N dispenses
+#                                 N portions immediately.
+#   automatic_feed_portions (205) "automatic dispense portion count": how many
+#                                 portions a scheduled meal dispenses.
+# Portion size in grams is reported separately by datapoint 202, so
+# portions x portion size = the amount of food.
+_DP_NAMES = {
+    "feed_num": "Dispense portions now",
+    "automatic_feed_portions": "Portions per scheduled meal",
+    "device_volume": "Speaker volume",
+}
+_DP_ICONS = {
+    "feed_num": "mdi:food-drumstick",
+    "automatic_feed_portions": "mdi:calendar-clock",
+    "device_volume": "mdi:volume-high",
+}
 
 async def async_setup_entry(
     hass: HomeAssistant,
@@ -40,11 +60,13 @@ async def async_setup_entry(
                 dp_path = dp_info.get("path", "tuya_status")
 
                 if dp_type == "Integer":
+                    if dp_code == "feed_abnormal":
+                        # A device fault register: read-only by nature, exposed
+                        # as a diagnostic sensor instead of a writable number.
+                        continue
                     if dp_code == "feed_num":
-                        number_entitiy = PhilipsPetsSeriesNumber(
-                            coordinator, client, home, device, str(dp_id), dp_code, dp_info["properties"], dp_path
-                        )
-                    elif dp_code == "feed_abnormal":
+                        # An action rather than a setting: writing it feeds the
+                        # pet straight away, so it belongs with the controls.
                         number_entitiy = PhilipsPetsSeriesNumber(
                             coordinator, client, home, device, str(dp_id), dp_code, dp_info["properties"], dp_path
                         )
@@ -68,7 +90,11 @@ class PhilipsPetsSeriesNumber(PhilipsPetsSeriesEntity, NumberEntity):
         self._properties = properties
         self._dp_path = dp_path
         self._attr_unique_id = f"{device.id}_number_{dp_code}"
-        self._attr_name = f"{dp_code.replace('_', ' ').title()} ({device.name})"
+        # Home Assistant already prefixes the device name, so repeating it
+        # here produced names like "Voederbak Video Osd (Voederbak)".
+        self._attr_name = _DP_NAMES.get(dp_code, dp_code.replace('_', ' ').capitalize())
+        self._attr_icon = _DP_ICONS.get(dp_code)
+        self._scale = int(properties.get("scale") or 0)
         self._attr_native_min_value = properties.get("min", 0)
         self._attr_native_max_value = properties.get("max", 100)
         self._attr_native_step = properties.get("step", 1)
@@ -89,13 +115,32 @@ class PhilipsPetsSeriesNumber(PhilipsPetsSeriesEntity, NumberEntity):
                 self._device.id,
                 list(settings.keys()),
             )
-        current_value = settings.get(self._dp_code, self._attr_native_min_value)
+        current_value = self._dp_lookup(settings)
+        if current_value is self._MISSING:
+            return None
+        if self._scale and isinstance(current_value, (int, float)) and not isinstance(current_value, bool):
+            current_value = current_value / (10 ** self._scale)
         _LOGGER.debug(
             "Number Entity [%s]: current_value = %s",
             self._attr_name,
             current_value,
         )
         return current_value
+
+    _MISSING = object()
+
+    def _dp_lookup(self, settings):
+        """Return the datapoint value, or ``_MISSING`` when absent.
+
+        The cloud status is keyed by numeric datapoint id and only gains the
+        readable dpCode aliases when the alias pass runs, so a lookup by code
+        alone reports the entity unavailable whenever the fallback status dict
+        is in use.  Accept either key.
+        """
+        for key in (self._dp_code, self._dp_id, str(self._dp_id)):
+            if key in settings:
+                return settings[key]
+        return self._MISSING
 
     def _get_settings(self):
         """Retrieve the correct settings dictionary based on dp_path."""
@@ -119,11 +164,9 @@ class PhilipsPetsSeriesNumber(PhilipsPetsSeriesEntity, NumberEntity):
         if not parent_available:
             return False
         settings = self._get_settings()
-        _LOGGER.info(settings)
-        _LOGGER.info(self._dp_code)
-        is_available = self._dp_code in settings
+        is_available = self._dp_lookup(settings) is not self._MISSING
         if not is_available:
-            _LOGGER.warning(
+            _LOGGER.debug(
                 "Number Entity [%s] is unavailable. Device ID: %s, dp_code: %s. Available settings: %s",
                 self._attr_name,
                 self._device.id,
@@ -140,7 +183,8 @@ class PhilipsPetsSeriesNumber(PhilipsPetsSeriesEntity, NumberEntity):
     async def async_set_native_value(self, value: float) -> None:
         """Set a new value."""
         try:
-            int_value = int(value)
+            # Tuya expects the fixed-point integer described by the scale.
+            int_value = int(round(value * (10 ** self._scale)))
             _LOGGER.debug(
                 "Setting Number Entity [%s] to %s",
                 self._attr_name,
@@ -153,4 +197,6 @@ class PhilipsPetsSeriesNumber(PhilipsPetsSeriesEntity, NumberEntity):
             )
             await self.coordinator.async_request_refresh()
         except Exception as e:
-            _LOGGER.error("Failed to set %s to %s: %s", self._attr_name, value, e)
+            raise HomeAssistantError(
+                f"Failed to set {self._attr_name} to {value}: {e}"
+            ) from e

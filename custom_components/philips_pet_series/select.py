@@ -1,6 +1,7 @@
 from homeassistant.components.select import SelectEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.entity import EntityCategory
 
@@ -64,7 +65,9 @@ class PhilipsPetsSeriesSelect(PhilipsPetsSeriesEntity, SelectEntity):
         self._nicenames = nicenames
         self._dp_path = dp_path
         self._attr_unique_id = f"{device.id}_select_{dp_code}"
-        self._attr_name = f"{dp_code.replace('_', ' ').title()} ({device.name})"
+        # Home Assistant already prefixes the device name, so repeating it
+        # here produced names like "Voederbak Video Osd (Voederbak)".
+        self._attr_name = dp_code.replace('_', ' ').capitalize()
         self._value_to_nicename = {str(k): v for k, v in zip(options, nicenames)}
         self._nicename_to_value = {v: str(k) for k, v in zip(options, nicenames)}
         self._attr_options = nicenames
@@ -74,9 +77,13 @@ class PhilipsPetsSeriesSelect(PhilipsPetsSeriesEntity, SelectEntity):
     def _get_current_option(self):
         """Get the current option from the coordinator data."""
         settings = self._get_settings()
-        current_value = settings.get(self._dp_code, self._options[0])
+        current_value = self._dp_lookup(settings)
+        if current_value is self._MISSING:
+            return None
         current_value_str = str(current_value)
-        current_option = self._value_to_nicename.get(current_value_str, self._nicenames[0])
+        # An unmapped value is genuinely unknown; reporting the first option
+        # would silently misreport the device's real setting.
+        current_option = self._value_to_nicename.get(current_value_str)
         _LOGGER.debug(
             "Select Entity [%s]: current_option = %s (value: %s)",
             self._attr_name,
@@ -84,6 +91,21 @@ class PhilipsPetsSeriesSelect(PhilipsPetsSeriesEntity, SelectEntity):
             current_value,
         )
         return current_option
+
+    _MISSING = object()
+
+    def _dp_lookup(self, settings):
+        """Return the datapoint value, or ``_MISSING`` when absent.
+
+        The cloud status is keyed by numeric datapoint id and only gains the
+        readable dpCode aliases when the alias pass runs, so a lookup by code
+        alone reports the entity unavailable whenever the fallback status dict
+        is in use.  Accept either key.
+        """
+        for key in (self._dp_code, self._dp_id, str(self._dp_id)):
+            if key in settings:
+                return settings[key]
+        return self._MISSING
 
     def _get_settings(self):
         """Retrieve the correct settings dictionary based on dp_path."""
@@ -107,9 +129,9 @@ class PhilipsPetsSeriesSelect(PhilipsPetsSeriesEntity, SelectEntity):
         if not parent_available:
             return False
         settings = self._get_settings()
-        is_available = self._dp_code in settings
+        is_available = self._dp_lookup(settings) is not self._MISSING
         if not is_available:
-            _LOGGER.warning(
+            _LOGGER.debug(
                 "Select Entity [%s] is unavailable. Device ID: %s, dp_code: %s. Available settings: %s",
                 self._attr_name,
                 self._device.id,
@@ -142,4 +164,6 @@ class PhilipsPetsSeriesSelect(PhilipsPetsSeriesEntity, SelectEntity):
             )
             await self.coordinator.async_request_refresh()
         except Exception as e:
-            _LOGGER.error("Failed to set %s to %s: %s", self._attr_name, option, e)
+            raise HomeAssistantError(
+                f"Failed to set {self._attr_name} to {option}: {e}"
+            ) from e
