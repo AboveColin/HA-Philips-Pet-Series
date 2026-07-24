@@ -132,4 +132,10 @@ class PhilipsPetsSeriesCamera(PhilipsPetsSeriesEntity, Camera):
         Home Assistant calls this each time a viewer needs the stream, which
         doubles as the keep-alive for an on-demand P2P session.
         """
-        return await self._bridge.async_get_stream_url(self._device)
+        was_streaming = self.is_streaming
+        url = await self._bridge.async_get_stream_url(self._device)
+        # Starting a session changes this entity's state; publish it now rather
+        # than waiting for the next coordinator refresh.
+        if self.is_streaming != was_streaming:
+            self.async_write_ha_state()
+        return url
