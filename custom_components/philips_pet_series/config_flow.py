@@ -156,10 +156,15 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):  # type: ignore[call
     async def async_step_settings(
         self, user_input: Optional[Dict[str, Any]] = None
     ) -> FlowResult:
-        """Collect regional settings, pre-filled from Home Assistant's own config.
+        """Collect regional settings and the camera mode.
 
         timezone / language / country are sent in the Tuya mobile-app requests so
         they match the account holder — nothing region-specific is hardcoded.
+
+        The camera mode is asked here as well as in the options: the default
+        suits most people, but anyone pointing an external recorder at the
+        stream needs "always", and would otherwise have to discover that setting
+        after their recording had already stopped working.
         """
         if user_input is not None:
             return self.async_create_entry(
@@ -184,6 +189,15 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):  # type: ignore[call
                 vol.Required(
                     CONF_COUNTRY, default=country_default
                 ): selector.CountrySelector(selector.CountrySelectorConfig()),
+                vol.Required(
+                    CONF_CAMERA_MODE, default=CAMERA_MODE_ON_DEMAND
+                ): selector.SelectSelector(
+                    selector.SelectSelectorConfig(
+                        options=list(CAMERA_MODES),
+                        translation_key="camera_mode",
+                        mode=selector.SelectSelectorMode.DROPDOWN,
+                    )
+                ),
             }
         )
         return self.async_show_form(step_id="settings", data_schema=schema)

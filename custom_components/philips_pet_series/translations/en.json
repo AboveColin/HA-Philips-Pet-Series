@@ -84,7 +84,11 @@
         "data": {
           "timezone": "Time zone",
           "language": "Language",
-          "country": "Country"
+          "country": "Country",
+          "camera_mode": "Camera streaming"
+        },
+        "data_description": {
+          "camera_mode": "The feeder allows only a few simultaneous camera connections, and opening one can disconnect the Philips app. 'Only while watching' connects on demand (recommended). Choose 'Always on' if something outside Home Assistant records the stream continuously, such as an NVR. 'Off' never connects to the camera."
         }
       }
     },
