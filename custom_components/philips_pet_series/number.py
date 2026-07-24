@@ -15,6 +15,25 @@ from .datapoints import datapoints
 
 _LOGGER = logging.getLogger(__name__)
 
+# Names taken from the device's own datapoint schema, which is clearer than the
+# raw codes:
+#   feed_num (201)                "feeder - dispense food": writing N dispenses
+#                                 N portions immediately.
+#   automatic_feed_portions (205) "automatic dispense portion count": how many
+#                                 portions a scheduled meal dispenses.
+# Portion size in grams is reported separately by datapoint 202, so
+# portions x portion size = the amount of food.
+_DP_NAMES = {
+    "feed_num": "Dispense portions now",
+    "automatic_feed_portions": "Portions per scheduled meal",
+    "device_volume": "Speaker volume",
+}
+_DP_ICONS = {
+    "feed_num": "mdi:food-drumstick",
+    "automatic_feed_portions": "mdi:calendar-clock",
+    "device_volume": "mdi:volume-high",
+}
+
 async def async_setup_entry(
     hass: HomeAssistant,
     config_entry: ConfigEntry,
@@ -46,6 +65,8 @@ async def async_setup_entry(
                         # as a diagnostic sensor instead of a writable number.
                         continue
                     if dp_code == "feed_num":
+                        # An action rather than a setting: writing it feeds the
+                        # pet straight away, so it belongs with the controls.
                         number_entitiy = PhilipsPetsSeriesNumber(
                             coordinator, client, home, device, str(dp_id), dp_code, dp_info["properties"], dp_path
                         )
@@ -71,7 +92,9 @@ class PhilipsPetsSeriesNumber(PhilipsPetsSeriesEntity, NumberEntity):
         self._attr_unique_id = f"{device.id}_number_{dp_code}"
         # Home Assistant already prefixes the device name, so repeating it
         # here produced names like "Voederbak Video Osd (Voederbak)".
-        self._attr_name = dp_code.replace('_', ' ').capitalize()
+        self._attr_name = _DP_NAMES.get(dp_code, dp_code.replace('_', ' ').capitalize())
+        self._attr_icon = _DP_ICONS.get(dp_code)
+        self._scale = int(properties.get("scale") or 0)
         self._attr_native_min_value = properties.get("min", 0)
         self._attr_native_max_value = properties.get("max", 100)
         self._attr_native_step = properties.get("step", 1)
@@ -95,6 +118,8 @@ class PhilipsPetsSeriesNumber(PhilipsPetsSeriesEntity, NumberEntity):
         current_value = self._dp_lookup(settings)
         if current_value is self._MISSING:
             return None
+        if self._scale and isinstance(current_value, (int, float)) and not isinstance(current_value, bool):
+            current_value = current_value / (10 ** self._scale)
         _LOGGER.debug(
             "Number Entity [%s]: current_value = %s",
             self._attr_name,
@@ -158,7 +183,8 @@ class PhilipsPetsSeriesNumber(PhilipsPetsSeriesEntity, NumberEntity):
     async def async_set_native_value(self, value: float) -> None:
         """Set a new value."""
         try:
-            int_value = int(value)
+            # Tuya expects the fixed-point integer described by the scale.
+            int_value = int(round(value * (10 ** self._scale)))
             _LOGGER.debug(
                 "Setting Number Entity [%s] to %s",
                 self._attr_name,
