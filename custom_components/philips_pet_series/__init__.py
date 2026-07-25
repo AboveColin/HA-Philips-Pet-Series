@@ -614,6 +614,10 @@ def _async_remove_stale_entities(hass: HomeAssistant, entry: ConfigEntry) -> Non
         if (
             registry_entry.unique_id.endswith(stale_suffixes)
             or registry_entry.unique_id in stale_unique_ids
+            # Per-meal sensors stopped being created before 1.0.0; upgrades from
+            # older versions still carry them as unavailable "Meal" entities.
+            # Scheduled meals are exposed through the meal calendar instead.
+            or registry_entry.unique_id.startswith("meal_")
         ):
             _LOGGER.debug("Removing stale entity %s", registry_entry.entity_id)
             registry.async_remove(registry_entry.entity_id)
