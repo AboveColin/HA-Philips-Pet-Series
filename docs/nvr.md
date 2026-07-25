@@ -67,14 +67,14 @@ Then your camera address is:
 rtsp://192.168.1.10:8560/philips-pet-01ab2cd3ef4gh5ij6kl7mn8op9
 ```
 
-Two things that surprise people:
+Two things worth knowing:
 
 - **You never use the feeder's own address** (`192.168.1.55`). The camera does not
   hand out video by itself — everything goes through Home Assistant.
 - **You never use Frigate's address either** (`192.168.1.20`). Frigate does not
   need to refer to itself.
 
-> ### The mistake almost everyone makes
+> ### Easy mistakes to avoid
 >
 > Writing `127.0.0.1:8560` instead of Home Assistant's real address.
 >
@@ -226,7 +226,7 @@ If two-way audio matters to you, point your live view at the unconverted stream
 ## If it does not work
 
 **"Connection refused"** — nearly always `127.0.0.1:8560` instead of Home
-Assistant's real address. See [the mistake almost everyone makes](#the-mistake-almost-everyone-makes).
+Assistant's real address. See [easy mistakes to avoid](#easy-mistakes-to-avoid).
 Also check Camera streaming is set to "Always on".
 
 **"No frames have been received"** — usually object detection. Switch it off, or
