@@ -79,6 +79,7 @@ async def async_setup_entry(
         config_entry.entry_id
     ]["coordinator"]
     beacons = hass.data[DOMAIN][config_entry.entry_id].get("beacons")
+    bridge = hass.data[DOMAIN][config_entry.entry_id].get("bridge")
 
     event_types = coordinator.data.get("event_types", [])
 
@@ -110,6 +111,10 @@ async def async_setup_entry(
         sensors.append(
             PhilipsPetsSeriesLanAddressSensor(coordinator, home, device, beacons)
         )
+        if bridge is not None:
+            sensors.append(
+                PhilipsPetsSeriesStreamUrlSensor(coordinator, home, device, bridge)
+            )
         for event_type_str in event_types_str:
             sensors.append(
                 PhilipsPetsSeriesEventSensor(coordinator, home, device, event_type_str)
@@ -375,6 +380,42 @@ class PhilipsPetsSeriesMotionSnapshotSensor(PhilipsPetsSeriesEntity, SensorEntit
             "media_type": metadata.get("type"),
             "alarm": metadata.get("alarm"),
             "timestamp": metadata.get("time"),
+        }
+
+
+class PhilipsPetsSeriesStreamUrlSensor(PhilipsPetsSeriesEntity, SensorEntity):
+    """The camera's RTSP address, as a recorder outside Home Assistant needs it.
+
+    Without this the address can only be found in debug logs, and the loopback
+    form shown inside Home Assistant does not work from anywhere else -- which
+    is the usual reason an NVR cannot connect.
+    """
+
+    def __init__(self, coordinator, home, device, bridge) -> None:
+        super().__init__(coordinator, device, home)
+        self._bridge = bridge
+        self._attr_unique_id = f"{device.id}_stream_url"
+        self._attr_name = "Camera stream address"
+        self._attr_entity_category = EntityCategory.DIAGNOSTIC
+        self._attr_icon = "mdi:link-variant"
+        self._attr_entity_registry_enabled_default = False
+
+    @property
+    def available(self) -> bool:
+        return super().available and self.native_value is not None
+
+    @property
+    def native_value(self):
+        return self._bridge.public_stream_url(self._device)
+
+    @property
+    def extra_state_attributes(self):
+        """Say where the address came from, and warn if it was only guessed."""
+        endpoint = self._bridge.stream_endpoint(self._device) or {}
+        return {
+            key: endpoint[key]
+            for key in ("port", "path", "address_source", "note")
+            if key in endpoint
         }
 
 
