@@ -11,6 +11,7 @@ import asyncio
 from dataclasses import dataclass, field
 from datetime import timedelta
 import hashlib
+import ipaddress
 import logging
 import os
 from pathlib import Path
@@ -27,7 +28,9 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from tuya_mobile import mqtt_client_id, mqtt_credentials
 
-from .const import CONF_CAMERA_MODE
+from homeassistant.helpers.network import get_url
+
+from .const import CONF_CAMERA_MODE, CONF_IDLE_TIMEOUT
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -50,6 +53,8 @@ CAMERA_MODES = (CAMERA_MODE_ON_DEMAND, CAMERA_MODE_ALWAYS, CAMERA_MODE_DISABLED)
 # stream component re-requests the source periodically while a viewer is
 # attached, so this only has to outlast the gap between those requests.
 IDLE_TIMEOUT = timedelta(minutes=5)
+IDLE_TIMEOUT_MIN_MINUTES = 1
+IDLE_TIMEOUT_MAX_MINUTES = 60
 _IDLE_CHECK_INTERVAL = 30
 
 # A bridge can lose its camera session without exiting, which the exit-driven
@@ -94,6 +99,22 @@ _BRIDGE_ARCH_MAP = {
     "armv6l": "arm",
     "arm": "arm",
 }
+
+
+def _is_usable_host(host: str) -> bool:
+    """Whether an address is plausibly reachable from another machine.
+
+    Loopback is never reachable elsewhere. Docker's default bridge network sits in
+    172.16.0.0/12, so an address there is very likely the container's own and not
+    the host's.
+    """
+    try:
+        address = ipaddress.ip_address(host)
+    except ValueError:
+        return True  # a hostname; assume the user knows their own DNS
+    if address.is_loopback or address.is_link_local:
+        return False
+    return address not in ipaddress.ip_network("172.16.0.0/12")
 
 
 @dataclass(slots=True)
@@ -153,6 +174,72 @@ class PhilipsCameraBridgeManager:
             CONF_CAMERA_MODE, CAMERA_MODE_ON_DEMAND
         )
         return mode if mode in CAMERA_MODES else CAMERA_MODE_ON_DEMAND
+
+    @property
+    def idle_timeout(self) -> float:
+        """Seconds an on-demand session lingers after the last stream request."""
+        configured = {**self.entry.data, **self.entry.options}.get(CONF_IDLE_TIMEOUT)
+        try:
+            minutes = float(configured)
+        except (TypeError, ValueError):
+            return IDLE_TIMEOUT.total_seconds()
+        minutes = max(IDLE_TIMEOUT_MIN_MINUTES, min(IDLE_TIMEOUT_MAX_MINUTES, minutes))
+        return minutes * 60
+
+    def stream_endpoint(self, device: Any) -> dict[str, Any] | None:
+        """How something *outside* Home Assistant should reach this camera.
+
+        ``stream_url`` is loopback, which is right inside Home Assistant but
+        useless to a separate recorder -- pointing an NVR at 127.0.0.1 is the
+        single most common setup mistake.
+
+        Home Assistant's own address is only trustworthy when it has been
+        configured. Auto-detection returns whatever address the host happens to
+        see, which inside a container is the container's own address and no use
+        to anything else, so say where the value came from rather than presenting
+        a guess as fact.
+        """
+        device_key = str(getattr(device, "id", ""))
+        port = self._ports.get(device_key)
+        if port is None:
+            return None
+        path = f"/philips-pet-{device_key.lower()}"
+
+        host, source = None, "unknown"
+        configured = getattr(self.hass.config, "internal_url", None)
+        if configured:
+            try:
+                host = urlsplit(configured).hostname
+                source = "configured"
+            except ValueError:
+                host = None
+        if not host:
+            try:
+                host = urlsplit(get_url(self.hass, allow_external=False)).hostname
+                source = "detected"
+            except Exception:
+                host = None
+        if not host:
+            return {"port": port, "path": path, "address_source": "unknown", "url": None}
+
+        result = {
+            "url": f"rtsp://{host}:{port}{path}",
+            "port": port,
+            "path": path,
+            "address_source": source,
+        }
+        if source == "detected" and not _is_usable_host(host):
+            result["note"] = (
+                "This address was detected automatically and looks local to Home "
+                "Assistant's own container, so another machine cannot reach it. "
+                "Replace the host with the address you use to open Home Assistant."
+            )
+        return result
+
+    def public_stream_url(self, device: Any) -> str | None:
+        """The externally reachable stream URL, or None if it cannot be built."""
+        endpoint = self.stream_endpoint(device)
+        return endpoint.get("url") if endpoint else None
 
     @property
     def processes(self) -> dict[str, BridgeProcess]:
@@ -230,7 +317,7 @@ class PhilipsCameraBridgeManager:
 
     async def _async_reap_idle(self) -> None:
         """Release on-demand sessions once nothing has asked for the stream."""
-        idle_seconds = IDLE_TIMEOUT.total_seconds()
+        idle_seconds = self.idle_timeout
         while not self._stopping:
             await asyncio.sleep(_IDLE_CHECK_INTERVAL)
             now = time.monotonic()
@@ -464,7 +551,7 @@ class PhilipsCameraBridgeManager:
         # An idle on-demand session that was reaped needs no replacement; it is
         # re-created on the next stream request.
         if self.camera_mode == CAMERA_MODE_ON_DEMAND and (
-            time.monotonic() - bridge.last_requested >= IDLE_TIMEOUT.total_seconds()
+            time.monotonic() - bridge.last_requested >= self.idle_timeout
         ):
             _LOGGER.debug(
                 "Camera bridge for %s stopped while idle (%s); not restarting",

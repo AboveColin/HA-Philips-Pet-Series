@@ -27,6 +27,7 @@ CONF_TIMEZONE = "timezone"
 CONF_LANGUAGE = "language"
 CONF_COUNTRY = "country"
 CONF_CAMERA_MODE = "camera_mode"
+CONF_IDLE_TIMEOUT = "idle_timeout_minutes"
 
 # Datapoints once exposed as sensors that carried no usable meaning.  Verified
 # against two days of recorded history: 203 (a write-only command register) and
