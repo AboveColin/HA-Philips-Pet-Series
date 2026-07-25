@@ -78,6 +78,7 @@ async def async_setup_entry(
     coordinator: PhilipsPetsSeriesDataUpdateCoordinator = hass.data[DOMAIN][
         config_entry.entry_id
     ]["coordinator"]
+    beacons = hass.data[DOMAIN][config_entry.entry_id].get("beacons")
 
     event_types = coordinator.data.get("event_types", [])
 
@@ -106,6 +107,9 @@ async def async_setup_entry(
         sensors.append(PhilipsPetsSeriesCameraOrientationSensor(coordinator, home, device))
         sensors.append(PhilipsPetsSeriesMotionSnapshotSensor(coordinator, home, device))
         sensors.append(PhilipsPetsSeriesNextMealSensor(coordinator, home, device))
+        sensors.append(
+            PhilipsPetsSeriesLanAddressSensor(coordinator, home, device, beacons)
+        )
         for event_type_str in event_types_str:
             sensors.append(
                 PhilipsPetsSeriesEventSensor(coordinator, home, device, event_type_str)
@@ -372,6 +376,46 @@ class PhilipsPetsSeriesMotionSnapshotSensor(PhilipsPetsSeriesEntity, SensorEntit
             "alarm": metadata.get("alarm"),
             "timestamp": metadata.get("time"),
         }
+
+
+class PhilipsPetsSeriesLanAddressSensor(PhilipsPetsSeriesEntity, SensorEntity):
+    """The feeder's current address on the local network.
+
+    Learned passively from the device's own broadcast, so it follows DHCP
+    changes without anything being configured.
+    """
+
+    def __init__(self, coordinator, home, device, beacons) -> None:
+        super().__init__(coordinator, device, home)
+        self._beacons = beacons
+        self._attr_unique_id = f"{device.id}_lan_address"
+        self._attr_name = "LAN address"
+        self._attr_entity_category = EntityCategory.DIAGNOSTIC
+        self._attr_icon = "mdi:ip-network"
+        # Off by default: interesting for diagnosis, noise on a dashboard.
+        self._attr_entity_registry_enabled_default = False
+
+    def _beacon(self):
+        if self._beacons is None:
+            return None
+        return self._beacons.seen(self.coordinator.tuya_device_id(self._device))
+
+    @property
+    def available(self) -> bool:
+        # No beacon means "we cannot know", not "no address".
+        return super().available and self._beacon() is not None
+
+    @property
+    def native_value(self):
+        beacon = self._beacon()
+        return beacon.ip if beacon else None
+
+    @property
+    def extra_state_attributes(self):
+        beacon = self._beacon()
+        if beacon is None:
+            return {}
+        return {"protocol_version": beacon.protocol, "last_seen_seconds_ago": round(beacon.age)}
 
 
 class PhilipsPetsSeriesNextMealSensor(PhilipsPetsSeriesEntity, SensorEntity):

@@ -48,6 +48,7 @@ from .const import (
     REMOVED_DP_SENSORS,
 )
 from .bridge import PhilipsCameraBridgeManager
+from .lanbeacon import BeaconListener
 from .datapoints import datapoints
 
 PLATFORMS = [
@@ -410,6 +411,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         ) from err
     hass.data[DOMAIN][entry.entry_id]["bridge"] = bridge
 
+    # Passive LAN beacon watch: gives each feeder's current address and a
+    # cloud-independent presence signal. Optional -- a container on Docker's
+    # bridge network never sees the broadcast.
+    beacons = BeaconListener()
+    await beacons.async_start()
+    hass.data[DOMAIN][entry.entry_id]["beacons"] = beacons
+
     # Camera streaming mode is read at bridge start, so apply option changes by
     # reloading the entry.
     entry.async_on_unload(entry.add_update_listener(_async_update_listener))
@@ -635,6 +643,9 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         bridge = entry_data.get("bridge")
         if bridge is not None:
             await bridge.async_stop()
+        beacons = entry_data.get("beacons")
+        if beacons is not None:
+            beacons.async_stop()
         client = entry_data["client"]
         await client.close()
         hass.data[DOMAIN].pop(entry.entry_id)
