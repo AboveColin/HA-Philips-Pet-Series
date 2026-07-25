@@ -111,10 +111,12 @@
       "init": {
         "title": "Philips Pets Series options",
         "data": {
-          "camera_mode": "Camera streaming"
+          "camera_mode": "Camera streaming",
+          "idle_timeout_minutes": "Disconnect from the camera after"
         },
         "data_description": {
-          "camera_mode": "The feeder allows only a few simultaneous camera connections, and opening one can disconnect the Philips app. 'Only while watching' connects on demand (recommended). 'Always on' keeps the stream up permanently, which external recorders need. 'Off' never connects to the camera."
+          "camera_mode": "The feeder allows only a few simultaneous camera connections, and opening one can disconnect the Philips app. 'Only while watching' connects on demand (recommended). 'Always on' keeps the stream up permanently, which external recorders need. 'Off' never connects to the camera.",
+          "idle_timeout_minutes": "Only used when camera streaming is set to 'Only while watching'. When you close the camera view, Home Assistant waits this long before letting go of the camera. A longer wait makes opening the camera again instant; a shorter one hands the camera back to the Philips app sooner. Five minutes suits most people."
         }
       }
     }
