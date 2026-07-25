@@ -7,6 +7,7 @@ from datetime import timedelta
 from homeassistant.components.binary_sensor import BinarySensorDeviceClass, BinarySensorEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.util import dt as dt_util
 
@@ -60,7 +61,46 @@ async def async_setup_entry(
         PhilipsPetsSeriesScheduledFeedingSensor(coordinator, home, device)
         for home, device in iter_home_devices(coordinator)
     ]
+    beacons = hass.data[DOMAIN][config_entry.entry_id].get("beacons")
+    if beacons is not None:
+        entities += [
+            PhilipsPetsSeriesOnLanSensor(coordinator, home, device, beacons)
+            for home, device in iter_home_devices(coordinator)
+        ]
     async_add_entities(entities)
+
+
+class PhilipsPetsSeriesOnLanSensor(PhilipsPetsSeriesEntity, BinarySensorEntity):
+    """Whether the feeder is announcing itself on the local network.
+
+    Independent of the cloud, and unlike the connectivity sensor it does not
+    depend on Philips having recorded any online/offline events. Reports unknown
+    rather than "away" where the broadcast cannot reach Home Assistant at all,
+    which is the case for a container on Docker's bridge network.
+    """
+
+    _attr_device_class = BinarySensorDeviceClass.CONNECTIVITY
+
+    def __init__(self, coordinator, home, device, beacons) -> None:
+        super().__init__(coordinator, device, home)
+        self._beacons = beacons
+        self._attr_unique_id = f"{device.id}_on_lan"
+        self._attr_name = "On local network"
+        self._attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    @property
+    def available(self) -> bool:
+        # Only claim to know once we have actually heard a beacon from *some*
+        # device; otherwise we cannot distinguish "away" from "cannot listen".
+        return (
+            super().available
+            and self._beacons.listening
+            and self._beacons.any_seen
+        )
+
+    @property
+    def is_on(self) -> bool:
+        return self._beacons.seen(self.coordinator.tuya_device_id(self._device)) is not None
 
 
 class PhilipsPetsSeriesScheduledFeedingSensor(PhilipsPetsSeriesEntity, BinarySensorEntity):
