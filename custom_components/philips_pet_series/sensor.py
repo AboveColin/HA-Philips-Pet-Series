@@ -23,6 +23,7 @@ from . import DOMAIN, PhilipsPetsSeriesDataUpdateCoordinator
 from .const import REMOVED_DP_SENSORS  # noqa: F401  (documented alongside _READ_ONLY_TUYA_DPS)
 from .datapoints import datapoints
 from .entity import PhilipsPetsSeriesEntity, iter_home_devices
+from .meals import device_meals, next_occurrence as next_meal
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -104,6 +105,7 @@ async def async_setup_entry(
         )
         sensors.append(PhilipsPetsSeriesCameraOrientationSensor(coordinator, home, device))
         sensors.append(PhilipsPetsSeriesMotionSnapshotSensor(coordinator, home, device))
+        sensors.append(PhilipsPetsSeriesNextMealSensor(coordinator, home, device))
         for event_type_str in event_types_str:
             sensors.append(
                 PhilipsPetsSeriesEventSensor(coordinator, home, device, event_type_str)
@@ -370,6 +372,43 @@ class PhilipsPetsSeriesMotionSnapshotSensor(PhilipsPetsSeriesEntity, SensorEntit
             "alarm": metadata.get("alarm"),
             "timestamp": metadata.get("time"),
         }
+
+
+class PhilipsPetsSeriesNextMealSensor(PhilipsPetsSeriesEntity, SensorEntity):
+    """When this feeder next serves a scheduled meal.
+
+    The meal calendar is the full schedule, but a calendar only reads "on" while
+    a meal is actually being served, so at a glance it looks like nothing is
+    scheduled.  This sensor always shows the next feeding time instead.
+    """
+
+    def __init__(self, coordinator, home, device) -> None:
+        super().__init__(coordinator, device, home)
+        self._attr_unique_id = f"{device.id}_next_meal"
+        self._attr_name = "Next meal"
+        self._attr_device_class = SensorDeviceClass.TIMESTAMP
+        self._attr_icon = "mdi:calendar-clock"
+
+    @property
+    def native_value(self):
+        occurrence = next_meal(self.coordinator, self._device.id)
+        return occurrence.start if occurrence else None
+
+    @property
+    def extra_state_attributes(self):
+        """Describe the next meal and how much is scheduled overall."""
+        scheduled = device_meals(self.coordinator, self._device.id)
+        attributes = {
+            "scheduled_meals": len(scheduled),
+            "feeding_times": sorted(
+                meal.feed_time for meal in scheduled if getattr(meal, "feed_time", None)
+            ),
+        }
+        occurrence = next_meal(self.coordinator, self._device.id)
+        if occurrence is not None:
+            attributes["meal_name"] = occurrence.name
+            attributes["portions"] = occurrence.portions
+        return attributes
 
 
 class PhilipsPetsSeriesEventSensor(PhilipsPetsSeriesEntity, RestoreSensor):
