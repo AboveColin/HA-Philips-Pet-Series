@@ -86,6 +86,18 @@ No RTSP URL, Tuya device ID, IP address, local key, external signer, qemu
 process, add-on, or system service is required. The camera entity also serves
 the latest cloud motion snapshot when Home Assistant requests a still image.
 
+By default the camera is connected to only while something is watching, because
+the feeder allows just a couple of simultaneous connections and holding one open
+can disconnect the Philips app. Choose **Camera streaming → Always on** in the
+integration's options if something outside Home Assistant needs the stream
+continuously.
+
+### Recording in an NVR
+
+Frigate, go2rtc and similar recorders can use the camera. See
+**[docs/nvr.md](docs/nvr.md)** for working configuration, the settings you need
+to change first, and measured figures for which options are worth the CPU.
+
 ## Contributing
 
 Contributions are welcome — please open an issue or pull request on the

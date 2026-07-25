@@ -27,6 +27,35 @@ TO_REDACT = {
 }
 
 
+def _frigate_example(cameras: list[dict]) -> list[str] | str:
+    """Recording-only Frigate configuration for the discovered cameras."""
+    if not cameras:
+        return "No camera stream available; set Camera streaming to 'always'."
+    lines = ["go2rtc:", "  streams:"]
+    for index, camera in enumerate(cameras):
+        name = "feeder" if index == 0 else f"feeder_{index + 1}"
+        lines += [f"    {name}:", f'      - "{camera["stream_url"]}"']
+    lines += ["", "cameras:"]
+    for index, camera in enumerate(cameras):
+        name = "feeder" if index == 0 else f"feeder_{index + 1}"
+        lines += [
+            f"  {name}:",
+            "    ffmpeg:",
+            "      input_args: preset-rtsp-restream -analyzeduration 1000000 -probesize 1000000",
+            "      inputs:",
+            f"        - path: rtsp://127.0.0.1:8554/{name}",
+            "          roles:",
+            "            - record",
+            "    detect:",
+            "      enabled: false",
+            "    motion:",
+            "      enabled: true",
+            "    record:",
+            "      enabled: true",
+        ]
+    return lines
+
+
 async def async_get_config_entry_diagnostics(
     hass: HomeAssistant, config_entry: ConfigEntry
 ) -> dict[str, Any]:
@@ -67,6 +96,27 @@ async def async_get_config_entry_diagnostics(
                 "settings_devices_count": len(coordinator.data.get("settings", {})),
             }
             data["coordinator"]["data_summary"] = coordinator_summary
+
+    bridge = domain_data.get("bridge")
+    if bridge is not None:
+        # A ready-to-paste recorder configuration. The address is the hardest
+        # part to discover, and the loopback form shown inside Home Assistant
+        # does not work from a separate recorder.
+        cameras = []
+        for device in (coordinator.data.get("devices", []) if coordinator else []):
+            endpoint = bridge.stream_endpoint(device)
+            if endpoint and endpoint.get("url"):
+                entry_info = {"name": device.name, "stream_url": endpoint["url"],
+                              "address_source": endpoint.get("address_source")}
+                if endpoint.get("note"):
+                    entry_info["note"] = endpoint["note"]
+                cameras.append(entry_info)
+        data["camera_streaming"] = {
+            "mode": bridge.camera_mode,
+            "cameras": cameras,
+            "frigate_example": _frigate_example(cameras),
+            "documentation": "https://github.com/AboveColin/HA-Philips-Pet-Series/blob/main/docs/nvr.md",
+        }
 
     if client:
         data["client"] = {

@@ -15,11 +15,18 @@ from petsseries.auth import AuthError, AuthManager  # type: ignore[import-not-fo
 from homeassistant.helpers import selector  # type: ignore[import-not-found]
 from zoneinfo import available_timezones
 
-from .bridge import CAMERA_MODE_ON_DEMAND, CAMERA_MODES
+from .bridge import (
+    CAMERA_MODE_ON_DEMAND,
+    CAMERA_MODES,
+    IDLE_TIMEOUT,
+    IDLE_TIMEOUT_MAX_MINUTES,
+    IDLE_TIMEOUT_MIN_MINUTES,
+)
 from .const import (
     CONF_ACCESS_TOKEN,
     CONF_CAMERA_MODE,
     CONF_COUNTRY,
+    CONF_IDLE_TIMEOUT,
     CONF_HOME_IDS,
     CONF_ID_TOKEN,
     CONF_LANGUAGE,
@@ -352,6 +359,10 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
         )
         if current not in CAMERA_MODES:
             current = CAMERA_MODE_ON_DEMAND
+        merged = {**self.config_entry.data, **self.config_entry.options}
+        idle_default = merged.get(
+            CONF_IDLE_TIMEOUT, int(IDLE_TIMEOUT.total_seconds() // 60)
+        )
         schema = vol.Schema(
             {
                 vol.Required(
@@ -361,6 +372,17 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                         options=list(CAMERA_MODES),
                         translation_key="camera_mode",
                         mode=selector.SelectSelectorMode.DROPDOWN,
+                    )
+                ),
+                vol.Required(
+                    CONF_IDLE_TIMEOUT, default=idle_default
+                ): selector.NumberSelector(
+                    selector.NumberSelectorConfig(
+                        min=IDLE_TIMEOUT_MIN_MINUTES,
+                        max=IDLE_TIMEOUT_MAX_MINUTES,
+                        step=1,
+                        unit_of_measurement="min",
+                        mode=selector.NumberSelectorMode.BOX,
                     )
                 ),
             }
