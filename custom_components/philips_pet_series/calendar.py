@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from typing import List, override
 
 from homeassistant.components.calendar import CalendarEntity, CalendarEvent
@@ -12,6 +12,7 @@ import homeassistant.util.dt as dt_util
 
 from . import DOMAIN, PhilipsPetsSeriesDataUpdateCoordinator
 from .entity import iter_home_devices
+from .meals import occurrences as meal_occurrences
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -42,7 +43,9 @@ class PhilipsPetsSeriesCalendar(CalendarEntity):
         self.client = client
         self.home = home
         self.device = device
-        self._attr_name = f"{device.name} Meals"
+        # "Meal schedule" rather than "Meals": a calendar only reads "on" while a
+        # meal is being served, and "Meals: Off" looks like feeding is disabled.
+        self._attr_name = "Meal schedule"
         self._attr_unique_id = f"{device.id}_meal_calendar"
         self._attr_timezone = str(self.coordinator.hass.config.time_zone)
         self._events: List[CalendarEvent] = []
@@ -72,66 +75,20 @@ class PhilipsPetsSeriesCalendar(CalendarEntity):
         self, start_date: datetime, end_date: datetime
     ) -> List[CalendarEvent]:
         """Expand this device's enabled meals into events across a date range."""
-        events: List[CalendarEvent] = []
-        meals = self.coordinator.data.get("meals", [])
-
-        for meal in meals:
-            if not meal.enabled:
-                _LOGGER.debug("Skipping disabled meal: %s", meal.name)
-                continue  # Skip disabled meals
-
-            # Check if the meal is associated with this device
-            if meal.device_id != self.device.id:
-                _LOGGER.debug("Skipping meal '%s' for device %s", meal.name, meal.device_id)
-                continue
-
-            # Parse feed_time (e.g., '07:00' or '07:00Z')
-            try:
-                # Try parsing with 'Z' suffix first, then without
-                if meal.feed_time.endswith('Z'):
-                    feed_time_naive = datetime.strptime(meal.feed_time, "%H:%MZ").time()
-                    feed_time_is_utc = True
-                else:
-                    feed_time_naive = datetime.strptime(meal.feed_time, "%H:%M").time()
-                    feed_time_is_utc = False
-            except ValueError as e:
-                _LOGGER.error("Invalid feed_time format for meal '%s': time data '%s' does not match expected format (HH:MM or HH:MMZ)", meal.name, meal.feed_time)
-                continue
-
-            # Map repeat_days (1=Monday, 7=Sunday) to Python's weekday (0=Monday, 6=Sunday)
-            repeat_days = [day - 1 for day in meal.repeat_days if 1 <= day <= 7]
-            _LOGGER.debug("Meal '%s' repeat_days: %s", meal.name, repeat_days)
-
-            # Iterate through each day in the range and create events for matching repeat_days
-            current_date = start_date.date()
-            while current_date <= end_date.date():
-                current_weekday = current_date.weekday()
-                if current_weekday in repeat_days:
-                    event_start = datetime.combine(current_date, feed_time_naive)
-                    event_end = event_start + timedelta(minutes=10)
-
-                    # A trailing 'Z' means the API already reported UTC, so
-                    # attach UTC rather than reinterpreting it as local time.
-                    if feed_time_is_utc:
-                        event_start_utc = event_start.replace(tzinfo=timezone.utc)
-                        event_end_utc = event_end.replace(tzinfo=timezone.utc)
-                    else:
-                        event_start_utc = dt_util.as_utc(event_start)
-                        event_end_utc = dt_util.as_utc(event_end)
-
-                    event = CalendarEvent(
-                        summary=f"{meal.name} (Portion: {meal.portion_amount})",
-                        start=event_start_utc,
-                        end=event_end_utc,
-                        description=f"Feed {meal.portion_amount} portions at {meal.feed_time}",
-                        location=self.home.name,
-                    )
-                    events.append(event)
-                    _LOGGER.debug("Added event: %s, %s - %s", event.summary, event.start, event.end)
-                current_date += timedelta(days=1)
-
-        events.sort(key=lambda event: event.start)
-        return events
+        return [
+            CalendarEvent(
+                summary=f"{occurrence.name} (Portion: {occurrence.portions})",
+                start=occurrence.start,
+                end=occurrence.end,
+                description=(
+                    f"Feed {occurrence.portions} portions at {occurrence.feed_time}"
+                ),
+                location=self.home.name,
+            )
+            for occurrence in meal_occurrences(
+                self.coordinator, self.device.id, start_date, end_date
+            )
+        ]
 
     @property
     def event(self) -> CalendarEvent | None:
