@@ -515,64 +515,6 @@ class PhilipsPetsSeriesEventSensor(PhilipsPetsSeriesEntity, RestoreSensor):
         return super().available and self.coordinator.last_update_success
 
 
-class PhilipsPetsSeriesMealSensor(CoordinatorEntity, SensorEntity):
-    """Representation of a Philips Pets Series Meal Sensor."""
-
-    def __init__(self, coordinator, meal):
-        """Initialize the meal sensor."""
-        super().__init__(coordinator)
-        self.meal = meal
-        self._attr_unique_id = f"meal_{meal.id}"
-        self._attr_name = meal.name
-        self._attr_icon = "mdi:food"
-
-    @property
-    def device_info(self):
-        """Return device information."""
-        # Find the device this meal belongs to
-        device = next(
-            (d for d in self.coordinator.data.get("devices", []) if d.id == self.meal.device_id),
-            None
-        )
-
-        identifiers = {(DOMAIN, self.meal.device_id)}
-
-        # If we found the device, we can try to find the home it belongs to for via_device
-        # But efficiently, we just need to link to the device ID.
-        # Home Assistant links entities to devices via identifiers.
-
-        if device:
-             return DeviceInfo(
-                identifiers=identifiers,
-                name=device.name,
-                manufacturer="Philips",
-                model=device.product_ctn,
-                sw_version=device.product_id,
-                # via_device is optional if we share identifiers with the main device entity
-            )
-
-        return DeviceInfo(
-            identifiers=identifiers,
-            name=f"Device {self.meal.device_id}",
-            manufacturer="Philips",
-        )
-
-    @property
-    def state(self):
-        """Return the next scheduled time of the meal."""
-        return self.meal.feed_time
-
-    @property
-    def extra_state_attributes(self):
-        """Return extra attributes of the meal."""
-        return {
-            "portion_amount": self.meal.portion_amount,
-            "repeat_days": self.meal.repeat_days,
-            "device_id": self.meal.device_id,
-            "enabled": self.meal.enabled,
-        }
-
-
 class PhilipsPetsSeriesInvitesSensor(CoordinatorEntity, SensorEntity):
     """Representation of a Philips Pets Series Invites Sensor."""
 
