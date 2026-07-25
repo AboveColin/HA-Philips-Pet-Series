@@ -12,6 +12,7 @@ from homeassistant.util import dt as dt_util
 
 from . import DOMAIN, PhilipsPetsSeriesDataUpdateCoordinator
 from .entity import PhilipsPetsSeriesEntity, iter_home_devices
+from .meals import device_meals
 
 _CONDITIONS = {
     "food_level_low": ("Food level low", BinarySensorDeviceClass.PROBLEM),
@@ -50,11 +51,46 @@ async def async_setup_entry(
     coordinator: PhilipsPetsSeriesDataUpdateCoordinator = hass.data[DOMAIN][
         config_entry.entry_id
     ]["coordinator"]
-    async_add_entities(
+    entities = [
         PhilipsPetsSeriesConditionSensor(coordinator, home, device, event_type)
         for home, device in iter_home_devices(coordinator)
         for event_type in _CONDITIONS
-    )
+    ]
+    entities += [
+        PhilipsPetsSeriesScheduledFeedingSensor(coordinator, home, device)
+        for home, device in iter_home_devices(coordinator)
+    ]
+    async_add_entities(entities)
+
+
+class PhilipsPetsSeriesScheduledFeedingSensor(PhilipsPetsSeriesEntity, BinarySensorEntity):
+    """Whether this feeder has any scheduled meal switched on.
+
+    The meal calendar can only report "on" while a meal is actually being
+    served, which reads as though feeding were switched off for the rest of the
+    day.  This answers the simpler question: is the feeder set to feed on a
+    schedule at all?
+    """
+
+    def __init__(self, coordinator, home, device) -> None:
+        super().__init__(coordinator, device, home)
+        self._attr_unique_id = f"{device.id}_scheduled_feeding"
+        self._attr_name = "Scheduled feeding"
+        self._attr_icon = "mdi:calendar-check"
+
+    @property
+    def is_on(self) -> bool:
+        return bool(device_meals(self.coordinator, self._device.id))
+
+    @property
+    def extra_state_attributes(self):
+        meals = device_meals(self.coordinator, self._device.id)
+        return {
+            "scheduled_meals": len(meals),
+            "feeding_times": sorted(
+                meal.feed_time for meal in meals if getattr(meal, "feed_time", None)
+            ),
+        }
 
 
 class PhilipsPetsSeriesConditionSensor(PhilipsPetsSeriesEntity, BinarySensorEntity):

@@ -105,10 +105,15 @@ def occurrences(coordinator, device_id, start: datetime, end: datetime) -> list[
 
 
 def next_occurrence(coordinator, device_id, now: datetime | None = None):
-    """Return the next meal that has not finished yet, if any."""
+    """Return the next meal that has not started yet, if any.
+
+    Strictly upcoming: a meal currently being served is in the past as far as
+    "next meal" is concerned, and reporting it would render as a time that has
+    already passed.  The calendar, which does need the in-progress one, uses
+    ``occurrences`` directly.
+    """
     now = now or dt_util.now()
-    upcoming = occurrences(coordinator, device_id, now, now + timedelta(days=8))
-    for occurrence in upcoming:
-        if occurrence.end >= now:
+    for occurrence in occurrences(coordinator, device_id, now, now + timedelta(days=8)):
+        if occurrence.start > now:
             return occurrence
     return None
