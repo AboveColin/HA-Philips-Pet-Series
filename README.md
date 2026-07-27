@@ -1,108 +1,109 @@
-# Philips Pet Series — Home Assistant Integration
+# Philips Pet Series for Home Assistant
 
-A custom [Home Assistant](https://www.home-assistant.io/) integration for
-**Philips Pet Series** smart pet feeders (PAW-series, e.g. PAW5320). It lets you
-feed on demand, manage the feeding schedule, adjust the built-in camera, and
-monitor the device — all from Home Assistant.
+Bring your **Philips Pet Series** smart feeder into
+[Home Assistant](https://www.home-assistant.io/). Feed the cat from a dashboard
+button, use the meal schedule in your automations, watch the live camera, and
+get told when the food is running low.
 
-The integration signs in with your Philips / home.id account and talks to the
-same backend the official app uses. Device control, sensors, motion snapshots,
-and live camera video all work from that login with no extra services or camera
-credentials.
+Signing in takes an email address and a code. That is the whole setup. The
+feeder, its sensors and the camera video are all configured for you.
 
-## Features
+## What you can do with it
 
-- **Feeding** — feed-now button, portion size, automatic-feed portions, and a
-  meal-schedule **calendar**.
-- **Camera settings** — privacy mode, night vision, motion detection, image
-  flip, on-screen display, anti-flicker, siren, and volume.
-- **Camera** — live HEVC video and downstream audio through the bundled pure-Go
-  Tuya P2P bridge, with the latest cloud motion snapshot as the still image.
-- **Monitoring** — device online/offline, cloud connectivity, food-level and
-  feeding-fault sensors, filter-replacement reminder, and Wi-Fi / MCU firmware
-  versions.
-- **Notifications** — recent device events (motion, meals, faults) exposed as
-  sensors, plus a motion push-notification toggle.
+**Feeding.** A feed-now button, portion size, the portion used for scheduled
+meals, and the full meal schedule as a Home Assistant calendar. You can read the
+next meal from an automation, or dispense a portion when you are out and running
+late.
 
-## Requirements
+**The camera.** Live video and audio, plus the most recent motion snapshot as
+the still image. It works straight away. There is no camera URL to hunt down and
+nothing to copy across from another app.
 
-- A recent version of Home Assistant with [HACS](https://hacs.xyz/) (for the
-  recommended install).
-- A Philips Pet Series feeder already registered to a Philips / home.id account.
-  If it isn't registered yet, do so in the Philips Pet Series app or via the
-  [Philips Home Support](https://www.home.id/support) page first.
+**Camera settings.** Privacy mode, night vision, motion detection, image flip,
+on-screen display, anti-flicker, siren and volume.
 
-## Installation
+**Knowing what is going on.** Online and offline status, food level, feeding
+faults, the filter-replacement reminder, and firmware versions. Recent events
+such as motion, meals and faults arrive as sensors you can trigger automations
+from.
 
-### HACS (recommended)
+## Supported devices
 
-1. Make sure [HACS](https://hacs.xyz/) is installed.
-2. In HACS, open the three-dot menu → **Custom repositories**, add
-   `https://github.com/abovecolin/HA-Philips-Pet-Series`, and choose the
-   **Integration** category.
-3. Search for **Philips Pet Series** in HACS and install it.
-4. Restart Home Assistant.
+Philips Pet Series feeders in the PAW range, including the **PAW5320** smart
+feeder with camera. Feeders without a camera work too. You simply get the
+feeding and sensor side.
 
-### Manual
+If you have a Pet Series device that is not picked up, please
+[open an issue](https://github.com/AboveColin/HA-Philips-Pet-Series/issues) and
+say which model you have. Adding one is usually a small change.
 
-Copy `custom_components/philips_pet_series` into your Home Assistant
-`config/custom_components/` directory and restart.
+## Before you start
 
-## Setup
+You need Home Assistant with [HACS](https://hacs.xyz/) installed, and your
+feeder already set up in the Philips Pet Series app on a Philips or home.id
+account. If it is not paired yet, do that in the app first.
 
-Setup is a simple email login — no browser cookies, token copying, or Android
-device required.
+## Installing
 
-1. Go to **Settings → Devices & Services → Add Integration** and search for
-   **Philips Pet Series**.
-2. Enter the email address of your Philips / home.id account.
-3. Philips emails you a one-time code. Enter it in Home Assistant.
+The integration is in the default HACS store, so there is no custom repository
+to add.
 
-All Philips homes and supported devices on the account are added automatically.
+1. Open **HACS** in Home Assistant.
+2. Search for **Philips Pet Series**.
+3. Select it, choose **Download**, then restart Home Assistant.
 
-Tokens are then stored and refreshed automatically — you won't normally need to
-sign in again. If the login ever expires, Home Assistant shows a
-**Reconfigure** prompt that repeats the same email-code step.
+[![Open in HACS](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=AboveColin&repository=HA-Philips-Pet-Series&category=integration)
 
-## Device control — works out of the box
+If you would rather do it by hand, copy `custom_components/philips_pet_series`
+into your Home Assistant `config/custom_components/` directory and restart.
 
-Camera settings, the feed command, portion size, and all the Tuya-backed sensors
-work with **nothing beyond the normal email login**. They ride on Tuya's cloud
-API, and the request signing (`thing_security`) is reimplemented in pure Python
-inside the `petsseries` package — so there is **no external signer service, no
-qemu, and no native libraries** to install, and no local key to extract. This is
-handled automatically for every installation.
+## Signing in
 
-## Camera
+1. Go to **Settings**, then **Devices & Services**, then **Add Integration**,
+   and search for **Philips Pet Series**.
+2. Enter the email address of your Philips or home.id account.
+3. Philips emails you a one-time code. Type it in.
 
-The feeder uses Tuya's proprietary encrypted P2P media transport rather than a
-normal camera URL. This integration includes a pure-Go bridge for Linux amd64
-and arm64 Home Assistant installations. It starts and supervises the correct
-bridge automatically, obtains short-lived WebRTC/MQTT credentials from the
-existing Philips login over a protected loopback connection, and exposes the
-result through the normal Home Assistant camera entity.
+Every home and supported device on the account is added automatically. Your
+login is kept fresh in the background, so you should not need to do this again.
+If it ever does expire, Home Assistant shows a **Reconfigure** prompt that asks
+for a new code.
 
-No RTSP URL, Tuya device ID, IP address, local key, external signer, qemu
-process, add-on, or system service is required. The camera entity also serves
-the latest cloud motion snapshot when Home Assistant requests a still image.
+## A note about the camera
 
-By default the camera is connected to only while something is watching, because
-the feeder allows just a couple of simultaneous connections and holding one open
-can disconnect the Philips app. Choose **Camera streaming → Always on** in the
-integration's options if something outside Home Assistant needs the stream
-continuously.
+The feeder only allows a couple of camera connections at once, and holding one
+open permanently can push the Philips app off. So by default the integration
+connects only while something is actually watching, and lets go afterwards.
 
-### Recording in an NVR
+That suits normal dashboard use. If you want a recorder pulling the stream
+around the clock, switch **Camera streaming** to **Always on** in the
+integration options, and expect the phone app to lose live view while it runs.
 
-Frigate, go2rtc and similar recorders can use the camera. See
-**[docs/nvr.md](docs/nvr.md)** for working configuration, the settings you need
-to change first, and measured figures for which options are worth the CPU.
+Recording in Frigate, go2rtc or a similar NVR is covered in
+**[docs/nvr.md](docs/nvr.md)**, including which settings to change first and
+what each option costs you in CPU.
+
+## Documentation
+
+Full guides covering installation, day to day use, every entity, automation
+examples and troubleshooting live in the
+**[wiki](https://github.com/AboveColin/HA-Philips-Pet-Series/wiki)**.
+
+## Getting help
+
+Something not working, or a device not recognised? Open an
+[issue](https://github.com/AboveColin/HA-Philips-Pet-Series/issues). For
+questions, ideas and showing off what you have automated, there is
+[Discussions](https://github.com/AboveColin/HA-Philips-Pet-Series/discussions).
+
+This is an independent community project. It is not made, backed or supported by
+Philips or Versuni.
 
 ## Contributing
 
-Contributions are welcome — please open an issue or pull request on the
-[GitHub repository](https://github.com/abovecolin/HA-Philips-Pet-Series).
+Pull requests are welcome. If you are planning something substantial, open an
+issue first so we can talk it through.
 
 ## License
 
-Released under the MIT License.
+MIT.
