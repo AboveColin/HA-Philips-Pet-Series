@@ -10,7 +10,7 @@ ideas apply to other recorders.
 
 ---
 
-## Step 1 — two settings to change first
+## Step 1: two settings to change first
 
 ### In Home Assistant: set camera streaming to "Always on"
 
@@ -28,13 +28,13 @@ it needs this setting.
 In Frigate, open the camera's settings and enable **Preload camera stream**.
 
 Without it, Frigate only asks for the picture when it needs it, and then has to
-wait for the connection to the camera to be built up from scratch — which often
+wait for the connection to the camera to be built up from scratch, which often
 takes longer than Frigate is willing to wait, so it gives up and tries again.
 Preloading keeps the connection ready, so there is never a wait.
 
 ---
 
-## Step 2 — find your camera's address
+## Step 2: find your camera's address
 
 The address looks like this:
 
@@ -44,9 +44,9 @@ rtsp://<your-home-assistant-ip>:8560/philips-pet-<device-id>
 
 You need to fill in two things:
 
-- **your Home Assistant IP address** — the address you use to open Home
+- **your Home Assistant IP address**: the address you use to open Home
   Assistant, without the port
-- **your feeder's device id** — enable the **LAN address** entity on the feeder's
+- **your feeder's device id**: enable the **LAN address** entity on the feeder's
   device page to see it, or switch on debug logging for
   `custom_components.philips_pet_series` and look in the log
 
@@ -70,7 +70,7 @@ rtsp://192.168.1.10:8560/philips-pet-01ab2cd3ef4gh5ij6kl7mn8op9
 Two things worth knowing:
 
 - **You never use the feeder's own address** (`192.168.1.55`). The camera does not
-  hand out video by itself — everything goes through Home Assistant.
+  hand out video by itself. Everything goes through Home Assistant.
 - **You never use Frigate's address either** (`192.168.1.20`). Frigate does not
   need to refer to itself.
 
@@ -79,7 +79,7 @@ Two things worth knowing:
 > Writing `127.0.0.1:8560` instead of Home Assistant's real address.
 >
 > `127.0.0.1` means "this machine". When Frigate reads it, it looks inside
-> **itself** — but the camera connection lives inside **Home Assistant**, so
+> **itself**, but the camera connection lives inside **Home Assistant**, so
 > Frigate finds nothing and reports *connection refused*.
 >
 > This is true even if Frigate runs as a Home Assistant add-on: the add-on is
@@ -90,16 +90,16 @@ Two things worth knowing:
 
 ---
 
-## Step 3 — pick one of these two configurations
+## Step 3: pick one of these two configurations
 
 Both are complete. Copy one into your Frigate configuration and replace
 `<your-home-assistant-ip>` and `<device-id>` with your own values.
 
-### Option A — recording only (recommended)
+### Option A: recording only (recommended)
 
 Choose this if you want the feeder recorded and shown in Frigate, and you are
 happy to watch it in the Frigate app or Home Assistant rather than needing it to
-play in every web browser. It is **by far** the lighter option — see
+play in every web browser. It is **by far** the lighter option. See
 [why](#why-these-settings) below.
 
 ```yaml
@@ -124,7 +124,7 @@ cameras:
       enabled: true
 ```
 
-### Option B — recording plus live view in a web browser
+### Option B: recording plus live view in a web browser
 
 Choose this if you want the camera to play in a normal browser tab. The feeder
 sends its video in a format (HEVC) that most browsers cannot play, so it has to
@@ -175,14 +175,14 @@ similar.
 
 What this means in plain terms:
 
-- **Converting the video is the expensive part** — about a whole processor core,
+- **Converting the video is the expensive part**: about a whole processor core,
   continuously, for one camera. If you only want recordings, don't convert:
   Frigate stores the original perfectly well.
 - **If you do convert, leave the audio alone.** Re-encoding the sound as well
   costs a little extra and gains nothing.
 - **The `analyzeduration` and `probesize` numbers matter.** They tell Frigate how
   long to spend working out what the stream is. This camera sends few pictures
-  per second, so the normal setting is over-generous — one second brings the
+  per second, so the normal setting is over-generous. One second brings the
   startup delay down from about 3 seconds to about 2. Do not set them much lower
   than this: if the value is very small, Frigate cannot work the stream out at
   all and waits forever.
@@ -197,7 +197,7 @@ The feeder's camera is tall rather than wide (1080 x 1920) and sends few picture
 per second, and running detection on top of a conversion is expensive. Recording
 plus motion detection is usually the better trade.
 
-If you do want object detection, give it a size — and remember the picture is
+If you do want object detection, give it a size, and remember the picture is
 tall, so the height must be **larger** than the width:
 
 ```yaml
@@ -216,7 +216,7 @@ stop the detection stream from working.
 ## Talking through the feeder
 
 The connection supports talking back to the feeder, but **converting the video
-switches it off** — the conversion drops the microphone channel.
+switches it off**. The conversion drops the microphone channel.
 
 If two-way audio matters to you, point your live view at the unconverted stream
 (`feeder_source` in Option B) rather than the converted one.
@@ -225,18 +225,18 @@ If two-way audio matters to you, point your live view at the unconverted stream
 
 ## If it does not work
 
-**"Connection refused"** — nearly always `127.0.0.1:8560` instead of Home
+**"Connection refused"**: nearly always `127.0.0.1:8560` instead of Home
 Assistant's real address. See [easy mistakes to avoid](#easy-mistakes-to-avoid).
 Also check Camera streaming is set to "Always on".
 
-**"No frames have been received"** — usually object detection. Switch it off, or
+**"No frames have been received"**: usually object detection. Switch it off, or
 give it a tall size as shown above.
 
-**It only starts after a long wait, or works on and off** — turn on Preload, and
+**It only starts after a long wait, or works on and off**: turn on Preload, and
 make sure the `analyzeduration` and `probesize` settings are present. Connecting
 over and over in quick succession can also be refused by the camera; preloading
 avoids reconnecting at all.
 
-**Nothing works after restarting Home Assistant** — the connection to the camera
+**Nothing works after restarting Home Assistant**: the connection to the camera
 is rebuilt from scratch, which takes a moment. Preload plus "Always on" keeps
 that delay away from your recorder.
