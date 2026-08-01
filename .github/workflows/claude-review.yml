@@ -1,0 +1,63 @@
+name: Claude review
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+# A new push supersedes the review in flight; reviewing the previous commit
+# wastes tokens and posts comments about code that no longer exists.
+concurrency:
+  group: claude-review-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  review:
+    # Secrets are not available to pull requests from forks, so the action would
+    # fail rather than review. Fork contributions get a human review instead;
+    # the alternative, pull_request_target, would run with secrets in scope of
+    # code the contributor controls.
+    if: >-
+      github.event.pull_request.draft == false &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+
+      - uses: anthropics/claude-code-action@v1
+        with:
+          # A Claude subscription token, so reviews do not bill per token.
+          # Generate with `claude setup-token` and store as a repository secret.
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          # One comment that updates, rather than a new wall of text per push.
+          use_sticky_comment: true
+          prompt: |
+            REPO: ${{ github.repository }}
+            PR NUMBER: ${{ github.event.pull_request.number }}
+
+            Review this pull request.
+
+            First read `.github/review-guidelines.md`. It says what this project
+            cares about, and what is explicitly not worth a comment here. Follow
+            it: a review that spends its comments on import order is one people
+            learn to scroll past.
+
+            The PR branch is already checked out, so read the surrounding code
+            before commenting. A line that looks wrong in a diff is often right
+            in context, and the reverse.
+
+            If the change is fine, say so briefly. Do not manufacture findings
+            to look thorough, and do not restate what the diff already shows.
+
+            Use `gh pr comment` for the overall verdict.
+            Use `mcp__github_inline_comment__create_inline_comment` (with
+            `confirmed: true`) for issues tied to specific lines.
+            Only post GitHub comments; do not return the review as chat output.
+
+          claude_args: |
+            --allowedTools "mcp__github_inline_comment__create_inline_comment,Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr view:*),Read,Grep,Glob"

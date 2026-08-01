@@ -1,5 +1,8 @@
 # Review guide
 
+Read by the automated reviewer in `.github/workflows/claude-review.yml`, and a
+fair summary of what a human reviewer here looks for too.
+
 This is a Home Assistant custom integration for Philips Pet Series pet feeders,
 talking to Philips' cloud and to the device's Tuya datapoints. It ships Lovelace
 cards inside the integration.
