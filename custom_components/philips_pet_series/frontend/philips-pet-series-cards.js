@@ -2380,7 +2380,10 @@ for (const [type, card, editor, name, description] of CARDS) {
     name,
     description,
     preview: true,
+    // The README section, not a wiki page: this is the link behind
+    // "documentation" in the card picker, and it has to resolve to something
+    // that actually describes the cards.
     documentationURL:
-      "https://github.com/AboveColin/HA-Philips-Pet-Series/wiki/Lovelace-cards",
+      "https://github.com/AboveColin/HA-Philips-Pet-Series#the-dashboard-cards",
   });
 }
