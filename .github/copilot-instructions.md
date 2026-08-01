@@ -1,4 +1,8 @@
-# Review guide
+# Copilot instructions
+
+Guidance for anyone reviewing a change here, human or otherwise. Copilot reads
+this file in the editor. There is no automated reviewer on pull requests, so
+nothing enforces any of it -- treat it as the reviewer's checklist, not a gate.
 
 This is a Home Assistant custom integration for Philips Pet Series pet feeders,
 talking to Philips' cloud and to the device's Tuya datapoints. It ships Lovelace
