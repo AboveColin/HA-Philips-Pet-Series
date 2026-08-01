@@ -99,6 +99,8 @@ search the card picker for **Philips**.
 They share one look, one set of sizes and one set of colour settings, so a
 dashboard built from all three reads as one thing.
 
+<img src="docs/screenshots/feeder-card.png" alt="The feeder card: a countdown ring to the next meal, the day's remaining feeding times, a portion stepper and a dispense button" width="380">
+
 ### The feeder card
 
 A ring counts down to the next scheduled meal, filling as the wait goes on, with
