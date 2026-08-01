@@ -2,6 +2,18 @@
 
 DOMAIN = "philips_pet_series"
 
+# Where the bundled Lovelace cards are served from, and which files make up the
+# bundle.  HACS only lets a repository declare one category, so an integration
+# repository cannot also be listed as a "plugin"; the cards are shipped inside
+# the integration and register themselves as Lovelace resources instead.
+URL_BASE = "/philips_pet_series_frontend"
+JSMODULES = [
+    {
+        "name": "Philips Pet Series cards",
+        "filename": "philips-pet-series-cards.js",
+    },
+]
+
 WEEKDAYS = {
     0: "Monday",
     1: "Tuesday",

@@ -15,6 +15,7 @@ from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import entity_registry as er
 from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryNotReady
+from homeassistant.loader import async_get_integration
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from homeassistant.helpers.storage import Store
 from homeassistant.util import dt as dt_util
@@ -47,7 +48,9 @@ from .const import (
     DOMAIN,
     REMOVED_DP_SENSORS,
 )
+from . import websocket
 from .bridge import PhilipsCameraBridgeManager
+from .frontend import JSModuleRegistration
 from .lanbeacon import BeaconListener
 from .datapoints import datapoints
 
@@ -430,7 +433,25 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # Register services
     await async_setup_services(hass, client)
 
+    await _async_setup_frontend(hass)
+
     return True
+
+
+async def _async_setup_frontend(hass: HomeAssistant) -> None:
+    """Serve the bundled Lovelace cards and register the websocket command.
+
+    Both are global rather than per-entry, so a second config entry must not
+    register them twice.
+    """
+    if hass.data[DOMAIN].get("frontend_registered"):
+        return
+    hass.data[DOMAIN]["frontend_registered"] = True
+
+    websocket.async_register(hass)
+
+    integration = await async_get_integration(hass, DOMAIN)
+    await JSModuleRegistration(hass, str(integration.version)).async_register()
 
 
 async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
@@ -649,7 +670,23 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         client = entry_data["client"]
         await client.close()
         hass.data[DOMAIN].pop(entry.entry_id)
-        if not any(key != "services_registered" for key in hass.data[DOMAIN]):
-            hass.data[DOMAIN].pop("services_registered", None)
+        global_keys = {"services_registered", "frontend_registered"}
+        if not any(key not in global_keys for key in hass.data[DOMAIN]):
+            # Last entry gone: drop the global registration flags.  The Lovelace
+            # resource is deliberately left in place -- removing the integration
+            # is what should remove the cards, not reloading it.
+            for key in global_keys:
+                hass.data[DOMAIN].pop(key, None)
 
     return unload_ok
+
+
+async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Drop the cards' Lovelace resource when the last entry is removed."""
+    if any(
+        other.entry_id != entry.entry_id
+        for other in hass.config_entries.async_entries(DOMAIN)
+    ):
+        return
+    integration = await async_get_integration(hass, DOMAIN)
+    await JSModuleRegistration(hass, str(integration.version)).async_unregister()
