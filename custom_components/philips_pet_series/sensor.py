@@ -1,5 +1,5 @@
 import base64
-from datetime import datetime
+from datetime import datetime, timedelta
 import json
 
 from homeassistant.components.sensor import (
@@ -23,7 +23,7 @@ from . import DOMAIN, PhilipsPetsSeriesDataUpdateCoordinator
 from .const import REMOVED_DP_SENSORS  # noqa: F401  (documented alongside _READ_ONLY_TUYA_DPS)
 from .datapoints import datapoints
 from .entity import PhilipsPetsSeriesEntity, iter_home_devices
-from .meals import device_meals, next_occurrence as next_meal
+from .meals import device_meals, next_occurrence as next_meal, occurrences
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -493,6 +493,22 @@ class PhilipsPetsSeriesNextMealSensor(PhilipsPetsSeriesEntity, SensorEntity):
         if occurrence is not None:
             attributes["meal_name"] = occurrence.name
             attributes["portions"] = occurrence.portions
+        # "feeding_times" are the raw strings Philips reports, which are UTC
+        # when suffixed with Z and account-local otherwise -- fine to template
+        # against, ambiguous to display.  "upcoming" is the same schedule already
+        # expanded to unambiguous timestamps, which is what a UI wants.
+        now = dt_util.now()
+        attributes["upcoming"] = [
+            {
+                "start": upcoming.start.isoformat(),
+                "name": upcoming.name,
+                "portions": upcoming.portions,
+            }
+            for upcoming in occurrences(
+                self.coordinator, self._device.id, now, now + timedelta(days=1)
+            )
+            if upcoming.start > now
+        ]
         return attributes
 
 
