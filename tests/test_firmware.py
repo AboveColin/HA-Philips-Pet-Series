@@ -246,3 +246,88 @@ def test_survives_being_asked_before_any_data_arrived(coordinator):
     assert firmware.has_ota_module(coordinator, FakeDevice(), "mcu") is False
     assert firmware.installed_version(coordinator, FakeDevice(), "wifi") is None
     assert firmware.offered_version(coordinator, FakeDevice(), "wifi") is None
+
+
+# --- stored records must not speak for the present ---------------------------
+# Regression cases from review of the update entity. A record kept from an
+# earlier offer is a snapshot, and treating it as current produced two visible
+# faults: a version frozen at whatever it said then, and an update that appeared
+# to be available forever.
+
+
+def test_a_stored_offer_is_not_a_current_offer():
+    """Otherwise the update entity claims an update for good.
+
+    ota_history exists to keep a short-lived signed package URL, so it will
+    routinely hold a record whose upgradeStatus was 1 at the time.
+    """
+    coordinator = FakeCoordinator(
+        {
+            "ota_history": {
+                "dev1": [{"type": 0, "version": "111.07.00", "upgradeStatus": 1}]
+            }
+        }
+    )
+    assert firmware.offered_version(coordinator, FakeDevice(), "wifi") is None
+
+
+def test_live_module_version_beats_a_stored_current_version():
+    coordinator = FakeCoordinator(
+        {
+            "device_definitions": definition(wifi={"verSw": "111.06.24"}),
+            "ota_history": {
+                "dev1": [{"type": 0, "currentVersion": "110.01.00"}]
+            },
+        }
+    )
+    assert (
+        firmware.installed_version(coordinator, FakeDevice(), "wifi") == "111.06.24"
+    )
+
+
+def test_a_stored_version_is_still_better_than_nothing():
+    coordinator = FakeCoordinator(
+        {"ota_history": {"dev1": [{"type": 0, "currentVersion": "110.01.00"}]}}
+    )
+    assert (
+        firmware.installed_version(coordinator, FakeDevice(), "wifi") == "110.01.00"
+    )
+
+
+# --- upgradeStatus is read one way everywhere -------------------------------
+
+
+@pytest.mark.parametrize("raw", [1, "1"])
+def test_an_offer_is_recognised_as_a_number_or_a_string(raw):
+    """Tuya has returned this field both ways.
+
+    The sensor attribute and the update entity have to agree, or one says an
+    update is available while the other says it is not.
+    """
+    assert firmware.is_offer({"upgradeStatus": raw}) is True
+
+
+@pytest.mark.parametrize("raw", [0, "0", None, "", "junk", [], 2])
+def test_anything_else_is_not_an_offer(raw):
+    assert firmware.is_offer({"upgradeStatus": raw}) is False
+
+
+# --- "we do not know" is not "it is absent" ---------------------------------
+
+
+def test_module_list_is_only_trusted_when_we_have_it():
+    """Guards a destructive path.
+
+    The stale-entity sweep deletes registry rows, taking the user's history with
+    them. A metadata fetch that failed once must not look like hardware that
+    lost a component.
+    """
+    missing = FakeCoordinator({"device_definitions": {}})
+    empty_ota = FakeCoordinator({"device_definitions": {"dev1": {}}})
+    known = FakeCoordinator({"device_definitions": definition(wifi={"verSw": "1"})})
+
+    assert firmware.reports_ota_modules(missing, "dev1") is False
+    assert firmware.reports_ota_modules(empty_ota, "dev1") is False
+    assert firmware.reports_ota_modules(known, "dev1") is True
+    # And the module genuinely is absent in the case we do know about.
+    assert firmware.has_ota_module(known, FakeDevice(), "mcu") is False

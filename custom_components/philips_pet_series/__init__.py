@@ -632,7 +632,12 @@ def _async_remove_stale_entities(hass: HomeAssistant, entry: ConfigEntry) -> Non
     )
     data = getattr(coordinator, "data", None) or {}
     for device in data.get("devices", []):
-        if coordinator is None or not firmware.has_ota_module(coordinator, device, "mcu"):
+        # Only act on a definite answer.  Deleting a registry row throws away the
+        # user's history, so "we could not read the module list this time" must
+        # not be treated the same as "this feeder has no MCU".
+        if not firmware.reports_ota_modules(coordinator, device.id):
+            continue
+        if not firmware.has_ota_module(coordinator, device, "mcu"):
             # Both the version sensor and the update entity are created only for
             # hardware that reports an MCU module, so both have to be dropped
             # for hardware that does not.

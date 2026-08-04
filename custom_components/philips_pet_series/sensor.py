@@ -174,9 +174,9 @@ class PhilipsPetsSeriesFirmwareSensor(PhilipsPetsSeriesEntity, SensorEntity):
             "hmac": record.get("hmac"),
             "file_path": record.get("filePath"),
             "diff_ota": record.get("diffOta"),
-            "update_available": (
-                record.get("upgradeStatus") == firmware.STATUS_UPDATE_AVAILABLE
-            ),
+            # A stored record cannot establish that an update is on offer now,
+            # only that one was, so a historical record never reads available.
+            "update_available": not captured and firmware.is_offer(record),
             "captured_from_history": captured,
         }
 

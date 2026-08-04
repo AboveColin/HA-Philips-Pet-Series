@@ -19,6 +19,27 @@ _OTA_TYPES = {"wifi": 0, "mcu": 9}
 STATUS_UPDATE_AVAILABLE = 1
 
 
+def _upgrade_status(record) -> int | None:
+    """``upgradeStatus`` as an int, or None when absent or unparseable.
+
+    Tuya has been seen returning this field as a number and as a numeric
+    string, so both callers have to agree on how it is read or they will
+    disagree about whether an update exists.
+    """
+    raw = record.get("upgradeStatus")
+    if raw is None:
+        return None
+    try:
+        return int(raw)
+    except (TypeError, ValueError):
+        return None
+
+
+def is_offer(record) -> bool:
+    """Whether this record describes an update Tuya is currently offering."""
+    return _upgrade_status(record) == STATUS_UPDATE_AVAILABLE
+
+
 def _data(coordinator) -> dict:
     """The coordinator's payload, or an empty one.
 
@@ -56,12 +77,32 @@ def has_ota_module(coordinator, device, component: str) -> bool:
     return bool(ota_module(coordinator, device.id, component).get("verSw"))
 
 
-def ota_record(coordinator, device_id, component: str) -> tuple[dict, bool]:
+def reports_ota_modules(coordinator, device_id) -> bool:
+    """Whether we actually have this device's module list.
+
+    False means "we do not know", which is not the same as "the device has no
+    such module".  Anything destructive has to tell those two apart: a metadata
+    fetch that failed once would otherwise look like hardware that lost a
+    component.
+    """
+    ota_info = device_definition(coordinator, device_id).get("otaInfo")
+    return isinstance(ota_info, dict) and isinstance(
+        ota_info.get("otaModuleMap"), dict
+    )
+
+
+def ota_record(
+    coordinator, device_id, component: str, *, include_history: bool = True
+) -> tuple[dict, bool]:
     """The OTA record for a component, and whether it came from stored history.
 
     Returns ``({}, False)`` when Tuya has told us nothing about this module.
     History is only consulted when the live endpoints returned nothing, because
     a signed package URL is short-lived and worth keeping once seen.
+
+    Pass ``include_history=False`` for any question about the present.  A stored
+    record is a snapshot of something Tuya said once, so it cannot establish
+    what is true now.
     """
     wanted = _OTA_TYPES.get(component)
     if wanted is None:
@@ -73,7 +114,7 @@ def ota_record(coordinator, device_id, component: str) -> tuple[dict, bool]:
     )
     from_history = not records
     if from_history:
-        records = data.get("ota_history", {}).get(device_id, [])
+        records = data.get("ota_history", {}).get(device_id, []) if include_history else []
 
     for record in records:
         try:
@@ -89,10 +130,12 @@ def installed_version(coordinator, device, component: str) -> str | None:
 
     The OTA endpoints are frequently unauthorised for third-party logins, so
     this walks from the most authoritative source to the least rather than
-    trusting any single one.
+    trusting any single one.  Every live source is tried before the stored one,
+    because a kept record can be arbitrarily old and would otherwise pin the
+    version to whatever it said months ago.
     """
-    record, _ = ota_record(coordinator, device.id, component)
-    version = record.get("currentVersion") or record.get("current_version")
+    live, _ = ota_record(coordinator, device.id, component, include_history=False)
+    version = live.get("currentVersion") or live.get("current_version")
     if version:
         return version
 
@@ -118,17 +161,21 @@ def installed_version(coordinator, device, component: str) -> str | None:
         for key in (f"{component}Version", f"{component}_version", component):
             if status.get(key) is not None:
                 return str(status[key])
-    return None
+
+    # Last resort: a record kept from an earlier offer.  Better than reporting
+    # nothing, but every live source above is preferred over it.
+    stored, _ = ota_record(coordinator, device.id, component)
+    return stored.get("currentVersion") or stored.get("current_version") or None
 
 
 def offered_version(coordinator, device, component: str) -> str | None:
-    """The version Tuya is offering, or None when nothing is on offer."""
-    record, _ = ota_record(coordinator, device.id, component)
-    if not record:
-        return None
-    try:
-        if int(record.get("upgradeStatus", 0)) != STATUS_UPDATE_AVAILABLE:
-            return None
-    except (TypeError, ValueError):
+    """The version Tuya is offering right now, or None.
+
+    Live records only.  A stored record that once carried an offer would
+    otherwise keep claiming an update forever, long after Philips stopped
+    serving it.
+    """
+    record, _ = ota_record(coordinator, device.id, component, include_history=False)
+    if not record or not is_offer(record):
         return None
     return record.get("version") or None
