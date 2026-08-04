@@ -22,6 +22,7 @@ from petsseries.api import PetsSeriesClient
 from . import DOMAIN, PhilipsPetsSeriesDataUpdateCoordinator
 from .const import REMOVED_DP_SENSORS  # noqa: F401  (documented alongside _READ_ONLY_TUYA_DPS)
 from .datapoints import datapoints
+from . import firmware
 from .entity import PhilipsPetsSeriesEntity, iter_home_devices
 from .meals import device_meals, next_occurrence as next_meal, occurrences
 
@@ -54,21 +55,6 @@ _READ_ONLY_TUYA_DPS = {
 # the device page unless somebody deliberately turns them on.
 _DISABLED_BY_DEFAULT_DPS = ("206",)
 
-def _has_ota_module(coordinator, device, module: str) -> bool:
-    """Whether the device's metadata reports an OTA module by this name."""
-    definition = coordinator.data.get("device_definitions", {}).get(device.id)
-    if not isinstance(definition, dict):
-        return False
-    ota_info = definition.get("otaInfo")
-    if not isinstance(ota_info, dict):
-        return False
-    module_map = ota_info.get("otaModuleMap")
-    if not isinstance(module_map, dict):
-        return False
-    entry = module_map.get(module)
-    return isinstance(entry, dict) and bool(entry.get("verSw"))
-
-
 async def async_setup_entry(
     hass: HomeAssistant,
     config_entry: ConfigEntry,
@@ -98,7 +84,7 @@ async def async_setup_entry(
         # Only offer an MCU version where the hardware reports one; feeders
         # without a separate microcontroller list a wireless module only, and a
         # permanently empty sensor is worse than no sensor.
-        if _has_ota_module(coordinator, device, "mcu"):
+        if firmware.has_ota_module(coordinator, device, "mcu"):
             sensors.append(PhilipsPetsSeriesFirmwareSensor(coordinator, home, device, "mcu"))
         sensors.append(PhilipsPetsSeriesFirmwareSensor(coordinator, home, device, "wifi"))
         sensors.extend(
@@ -150,101 +136,49 @@ class PhilipsPetsSeriesFirmwareSensor(PhilipsPetsSeriesEntity, SensorEntity):
         self._attr_entity_category = EntityCategory.DIAGNOSTIC
         self._attr_icon = "mdi:chip" if component == "mcu" else "mdi:wifi"
 
-    def _device_definition(self) -> dict:
-        """Tuya device metadata (``thing.m.device.get``) for this device."""
-        definition = self.coordinator.data.get("device_definitions", {}).get(
-            self._device.id
-        )
-        return definition if isinstance(definition, dict) else {}
-
-    def _ota_module(self) -> dict:
-        """Per-module OTA record for this component, when the device reports one.
-
-        Devices expose ``otaInfo.otaModuleMap`` keyed by module name ("wifi",
-        "mcu").  Feeders without a separate microcontroller only list "wifi",
-        in which case there is genuinely no MCU version to report.
-        """
-        ota_info = self._device_definition().get("otaInfo")
-        if not isinstance(ota_info, dict):
-            return {}
-        module_map = ota_info.get("otaModuleMap")
-        if not isinstance(module_map, dict):
-            return {}
-        module = module_map.get(self._component)
-        return module if isinstance(module, dict) else {}
-
     @property
     def native_value(self):
-        ota_type = 9 if self._component == "mcu" else 0
-        records = (
-            self.coordinator.data.get("firmware_info", {}).get(self._device.id, [])
-            + self.coordinator.data.get("product_firmware_info", {}).get(self._device.id, [])
+        """The version this module is running."""
+        return firmware.installed_version(
+            self.coordinator, self._device, self._component
         )
-        if not records:
-            records = self.coordinator.data.get("ota_history", {}).get(self._device.id, [])
-        for record in records:
-            try:
-                if int(record.get("type", -1)) == ota_type:
-                    version = record.get("currentVersion") or record.get("current_version")
-                    if version:
-                        return version
-            except (TypeError, ValueError):
-                continue
-        # The OTA endpoints are frequently unauthorised for third-party logins,
-        # so fall back to the version the device metadata reports directly.
-        module_version = self._ota_module().get("verSw")
-        if module_version:
-            return module_version
-        if self._component == "wifi":
-            # ``verSw`` on the device record is the wireless module firmware,
-            # which is the version the Philips app shows for the device.
-            definition_version = self._device_definition().get("verSw")
-            if definition_version:
-                return definition_version
-        value = getattr(self._device, f"{self._component}_version", None)
-        if value:
-            return value
-        status = self.coordinator.data.get("settings", {}).get(self._device.id, {}).get("tuya_status", {})
-        for key in (f"{self._component}Version", f"{self._component}_version", self._component):
-            if status.get(key) is not None:
-                return str(status[key])
-        return None
 
     @property
     def extra_state_attributes(self):
-        ota_type = 9 if self._component == "mcu" else 0
-        records = (
-            self.coordinator.data.get("firmware_info", {}).get(self._device.id, [])
-            + self.coordinator.data.get("product_firmware_info", {}).get(self._device.id, [])
+        """The raw OTA record, unchanged, for anyone decoding what Philips sent.
+
+        Kept whole rather than trimmed: these keys are what the Tuya endpoints
+        actually return, and somebody templating against them should see the
+        same names.
+        """
+        record, captured = firmware.ota_record(
+            self.coordinator, self._device.id, self._component
         )
-        captured = not records
-        if not records:
-            records = self.coordinator.data.get("ota_history", {}).get(self._device.id, [])
-        for record in records:
-            try:
-                if int(record.get("type", -1)) == ota_type:
-                    return {
-                        "ota_type": record.get("type"),
-                        "version": record.get("version"),
-                        "current_version": record.get("currentVersion") or record.get("current_version"),
-                        "available_version": record.get("version"),
-                        "upgrade_status": record.get("upgradeStatus"),
-                        "upgrade_type": record.get("upgradeType"),
-                        "upgrade_mode": record.get("upgradeMode"),
-                        "can_upgrade": record.get("canUpgrade"),
-                        "url": record.get("url"),
-                        "file_size": record.get("fileSize"),
-                        "md5": record.get("md5"),
-                        "sign": record.get("sign"),
-                        "hmac": record.get("hmac"),
-                        "file_path": record.get("filePath"),
-                        "diff_ota": record.get("diffOta"),
-                        "update_available": record.get("upgradeStatus") == 1,
-                        "captured_from_history": captured,
-                    }
-            except (TypeError, ValueError):
-                continue
-        return None
+        if not record:
+            return None
+        return {
+            "ota_type": record.get("type"),
+            "version": record.get("version"),
+            "current_version": (
+                record.get("currentVersion") or record.get("current_version")
+            ),
+            "available_version": record.get("version"),
+            "upgrade_status": record.get("upgradeStatus"),
+            "upgrade_type": record.get("upgradeType"),
+            "upgrade_mode": record.get("upgradeMode"),
+            "can_upgrade": record.get("canUpgrade"),
+            "url": record.get("url"),
+            "file_size": record.get("fileSize"),
+            "md5": record.get("md5"),
+            "sign": record.get("sign"),
+            "hmac": record.get("hmac"),
+            "file_path": record.get("filePath"),
+            "diff_ota": record.get("diffOta"),
+            "update_available": (
+                record.get("upgradeStatus") == firmware.STATUS_UPDATE_AVAILABLE
+            ),
+            "captured_from_history": captured,
+        }
 
 
 class PhilipsPetsSeriesRawDpSensor(PhilipsPetsSeriesEntity, SensorEntity):

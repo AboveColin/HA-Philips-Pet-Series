@@ -48,7 +48,7 @@ from .const import (
     DOMAIN,
     REMOVED_DP_SENSORS,
 )
-from . import websocket
+from . import firmware, websocket
 from .bridge import PhilipsCameraBridgeManager
 from .frontend import JSModuleRegistration
 from .lanbeacon import BeaconListener
@@ -65,6 +65,7 @@ PLATFORMS = [
     Platform.CALENDAR,
     Platform.IMAGE,
     Platform.CAMERA,
+    Platform.UPDATE,
 ]
 
 SCAN_INTERVAL = timedelta(minutes=5)
@@ -626,16 +627,17 @@ def _async_remove_stale_entities(hass: HomeAssistant, entry: ConfigEntry) -> Non
     # The MCU firmware sensor is only created for hardware that reports an MCU
     # module, so drop it for devices that do not -- but leave it untouched on
     # devices where it is still provided.
-    coordinator = (hass.data.get(DOMAIN, {}).get(entry.entry_id) or {}).get("coordinator")
+    coordinator = (hass.data.get(DOMAIN, {}).get(entry.entry_id) or {}).get(
+        "coordinator"
+    )
     data = getattr(coordinator, "data", None) or {}
     for device in data.get("devices", []):
-        definition = data.get("device_definitions", {}).get(device.id)
-        module_map = {}
-        if isinstance(definition, dict) and isinstance(definition.get("otaInfo"), dict):
-            module_map = definition["otaInfo"].get("otaModuleMap") or {}
-        mcu = module_map.get("mcu") if isinstance(module_map, dict) else None
-        if not (isinstance(mcu, dict) and mcu.get("verSw")):
+        if coordinator is None or not firmware.has_ota_module(coordinator, device, "mcu"):
+            # Both the version sensor and the update entity are created only for
+            # hardware that reports an MCU module, so both have to be dropped
+            # for hardware that does not.
             stale_unique_ids.add(f"{device.id}_mcu_firmware_version")
+            stale_unique_ids.add(f"{device.id}_mcu_firmware_update")
 
     for registry_entry in list(registry.entities.values()):
         if registry_entry.config_entry_id != entry.entry_id:
