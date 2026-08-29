@@ -30,9 +30,9 @@ from.
 
 ## Supported devices
 
-Philips Pet Series feeders in the PAW range, including the **PAW5320** smart
-feeder with camera. Feeders without a camera work too. You simply get the
-feeding and sensor side.
+Philips Pet Series feeders in the PAW range, including the PAW5320 smart feeder
+with camera. A feeder without a camera works too, and gives you the feeding and
+sensor side.
 
 If you have a Pet Series device that is not picked up, please
 [open an issue](https://github.com/AboveColin/HA-Philips-Pet-Series/issues) and
@@ -227,9 +227,9 @@ Sizes: `full`, `compact`, `slim`. Slim also narrows the picture to 21:9.
 
 ### The health card
 
-Everything about the feeder that is not feeding: whether anything needs
-attention, then the readouts worth having at a glance, then any maintenance
-button the feeder offers.
+Everything about the feeder that is not feeding. First whether anything needs
+attention, then the readouts worth having, then any maintenance button the
+feeder offers.
 
 The warning strip is always honest in both directions. When nothing is wrong it
 says so, rather than showing an empty space you have to interpret as good news.
@@ -251,9 +251,9 @@ Sizes: `full`, `compact`, `slim`.
 
 ### Making it yours
 
-The cards have their own look rather than borrowing Home Assistant's, so a
-dashboard tells you at a glance which cards are the feeder's. The settings
-below apply to all three.
+The cards have their own look rather than borrowing Home Assistant's, so you can
+tell which cards on a dashboard are the feeder's. The settings below apply to
+all three.
 
 The header and accent gradients have colour pickers in the **Appearance**
 section of the editor. If you would rather set them once for every card, they
