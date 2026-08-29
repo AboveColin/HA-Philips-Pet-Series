@@ -17,7 +17,7 @@
   "issue_tracker": "https://github.com/AboveColin/HA-Philips-Pet-Series/issues",
   "requirements": [
     "petsseries==1.0.0",
-    "tuya-mobile>=1.0.0"
+    "tuya-mobile==1.0.0"
   ],
-  "version": "1.3.0"
+  "version": "1.3.1"
 }
