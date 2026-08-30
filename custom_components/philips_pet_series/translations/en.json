@@ -3,7 +3,7 @@
     "step": {
       "user": {
         "title": "Configure Philips Pets Series",
-        "description": "Enter the email address for your Philips account. We will send you a one-time code.",
+        "description": "Enter the email address for your Philips account. We will send you a one-time code.{detail}",
         "data": {
           "email": "Email address"
         },
@@ -13,7 +13,7 @@
       },
       "code": {
         "title": "Enter Philips verification code",
-        "description": "A one-time code was sent to {email}.",
+        "description": "A one-time code was sent to {email}.{detail}",
         "data": {
           "code": "Email code"
         },
@@ -23,28 +23,28 @@
       },
       "reauth_user": {
         "title": "Re-authenticate Philips Pets Series",
-        "description": "Enter your Philips account email. We will send a new one-time code.",
+        "description": "Enter your Philips account email. We will send a new one-time code.{detail}",
         "data": {
           "email": "Email address"
         }
       },
       "reauth_code": {
         "title": "Enter Philips verification code",
-        "description": "A one-time code was sent to {email}.",
+        "description": "A one-time code was sent to {email}.{detail}",
         "data": {
           "code": "Email code"
         }
       },
       "reconfigure": {
         "title": "Reconfigure Philips Pets Series",
-        "description": "Enter the Philips account email to replace the stored login.",
+        "description": "Enter the Philips account email to replace the stored login.{detail}",
         "data": {
           "email": "Email address"
         }
       },
       "reconfigure_code": {
         "title": "Enter Philips verification code",
-        "description": "A one-time code was sent to {email}.",
+        "description": "A one-time code was sent to {email}.{detail}",
         "data": {
           "code": "Email code"
         }
@@ -93,11 +93,12 @@
       }
     },
     "error": {
-      "cannot_connect": "Unable to connect to the Philips service. Please check your network.",
+      "cannot_connect": "Could not complete the Philips sign-in. The reason is shown with this form.",
+      "no_homes": "Signed in, but this Philips account has no home yet. Open the Philips Pet Series app, finish setting up your feeder so a home is created, then try again.",
       "invalid_auth": "The code was invalid or expired. Request a new code and try again.",
       "invalid_tuya_support": "Tuya support is invalid or missing dependencies.",
       "auth_url_failed": "Failed to generate authorization URL. Please try again.",
-      "unknown": "An unknown error occurred. Check logs for details."
+      "unknown": "Something unexpected went wrong. The reason is shown with this form."
     },
     "abort": {
       "already_configured": "This Philips account is already configured.",

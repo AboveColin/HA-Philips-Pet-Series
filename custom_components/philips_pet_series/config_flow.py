@@ -37,6 +37,25 @@ from .const import (
 
 _LOGGER = logging.getLogger(__name__)
 
+ISSUE_URL = "https://github.com/AboveColin/HA-Philips-Pet-Series/issues"
+
+
+def _describe(err: BaseException) -> str:
+    """Name the failure the way a bug report needs it.
+
+    Reports the cause when there is one, because every error the user can see
+    here is a wrapper: CannotConnect and InvalidAuth carry the real exception
+    in __cause__, and the wrapper's own name says nothing.
+    """
+    cause = err.__cause__ or err
+    text = str(cause).strip()
+    described = f"{type(cause).__name__}: {text}" if text else type(cause).__name__
+    # The longest of these measured across the known failures is 68 characters,
+    # but an exception is free to carry a whole HTTP body, and this string goes
+    # into a dialog box. 500 is a tripwire, not a budget: nothing legitimate here
+    # comes close.
+    return described if len(described) <= 500 else described[:499] + "\u2026"
+
 
 class CannotConnect(HomeAssistantError):
     """The service could not be reached."""
@@ -44,6 +63,16 @@ class CannotConnect(HomeAssistantError):
 
 class InvalidAuth(HomeAssistantError):
     """The email code or returned credentials were invalid."""
+
+
+class NoHomes(HomeAssistantError):
+    """The login worked, but the Philips account owns no home.
+
+    Kept apart from CannotConnect because the two need opposite actions from
+    the user: one is a network to check, this one is a home to create in the
+    Philips app. Reporting it as CannotConnect sends people to debug a working
+    network.
+    """
 
 
 async def _validate_tokens(access_token: str, refresh_token: str, id_token: str | None = None) -> str:
@@ -56,10 +85,15 @@ async def _validate_tokens(access_token: str, refresh_token: str, id_token: str 
     try:
         await client.initialize()
         user = await client.get_user_info()
-        return f"Philips Pets Series ({user.name or user.email})"
+        return f"Philips Pets Series ({user.name or user.email or user.sub})"
     except AuthError as err:
+        _LOGGER.exception("Philips rejected the credentials just issued")
         raise InvalidAuth from err
     except Exception as err:
+        # Everything non-auth becomes one opaque "cannot connect" for the user,
+        # so without this line the actual cause never reaches the log and the
+        # failure is unattributable from a bug report.
+        _LOGGER.exception("Philips credential validation failed")
         raise CannotConnect from err
     finally:
         await client.close()
@@ -83,6 +117,36 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):  # type: ignore[call
         self._vtoken: Optional[str] = None
         self._entry_data: Optional[Dict[str, Any]] = None
         self._entry: Optional[config_entries.ConfigEntry] = None
+        self._detail = ""
+        self._detail_is_bug = True
+
+    def _set_detail(self, text: str, *, is_bug: bool = True) -> None:
+        """Record what to show with the form, and whether it is worth reporting.
+
+        A missing home is the user's to fix in the Philips app, so pointing them
+        at the issue tracker for it would only generate noise.
+        """
+        self._detail = text
+        self._detail_is_bug = is_bug
+
+    def _placeholders(self) -> Dict[str, str]:
+        """Form placeholders, carrying the last failure into the dialog.
+
+        The error line itself renders as plain text, so the code block and the
+        issue link have to travel in the step description, which Home Assistant
+        renders as markdown.
+        """
+        if not self._detail:
+            return {"email": self._email, "detail": ""}
+        report = (
+            f"\n\nReport this at {ISSUE_URL} with the lines above."
+            if self._detail_is_bug
+            else ""
+        )
+        return {
+            "email": self._email,
+            "detail": f"\n\n**Details**\n\n```\n{self._detail}\n```{report}",
+        }
 
     async def _get_auth(self) -> AuthManager:
         if self._auth is None:
@@ -94,30 +158,43 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):  # type: ignore[call
             await self._auth.close()
             self._auth = None
 
+    async def async_remove(self) -> None:
+        """Close the login session when the flow ends.
+
+        Every _close_auth call sits on a success path, so a flow abandoned after
+        a failed code leaked its aiohttp session and logged "Unclosed client
+        session" instead of anything about the failure.
+        """
+        await self._close_auth()
+
     async def async_step_user(self, user_input: Optional[Dict[str, Any]] = None) -> FlowResult:
         """Collect the account email and send its one-time code."""
         if self._async_current_entries():
             return self.async_abort(reason="already_configured")
         errors: Dict[str, str] = {}
         if user_input is not None:
+            self._set_detail("")
             self._email = user_input["email"].strip().lower()
             try:
                 response = await (await self._get_auth()).request_email_code(self._email)
                 self._vtoken = response.get("vToken")
                 return await self.async_step_code()
-            except AuthError:
+            except AuthError as err:
                 _LOGGER.exception("Could not send Philips login code")
+                self._set_detail(_describe(err))
                 errors["base"] = "cannot_connect"
         return self.async_show_form(
             step_id="user",
             data_schema=vol.Schema({vol.Required("email"): str}),
             errors=errors,
+            description_placeholders=self._placeholders(),
         )
 
     async def async_step_code(self, user_input: Optional[Dict[str, Any]] = None) -> FlowResult:
         """Collect the emailed code and finish authentication."""
         errors: Dict[str, str] = {}
         if user_input is not None:
+            self._set_detail("")
             try:
                 tokens = await (await self._get_auth()).login_with_email_code(
                     self._email, user_input["code"], self._vtoken
@@ -134,7 +211,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):  # type: ignore[call
                 finally:
                     await client.close()
                 if not homes:
-                    raise CannotConnect("No Philips homes were found")
+                    raise NoHomes
                 await self._close_auth()
                 self._entry_data = {
                     CONF_ACCESS_TOKEN: access_token,
@@ -143,21 +220,40 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):  # type: ignore[call
                     CONF_HOME_IDS: [str(home.id) for home in homes],
                 }
                 return await self.async_step_settings()
-            except InvalidAuth:
+            except InvalidAuth as err:
+                _LOGGER.exception("Philips login rejected the credentials")
+                self._set_detail(_describe(err))
                 errors["base"] = "invalid_auth"
-            except AuthError:
+            except AuthError as err:
                 _LOGGER.exception("Philips OTP login failed")
+                self._set_detail(_describe(err))
                 errors["base"] = "invalid_auth"
-            except CannotConnect:
+            except NoHomes:
+                # The form tells the user what to do. This line exists so the
+                # cause is also in a log they paste into a bug report, where
+                # the form text is not.
+                _LOGGER.warning(
+                    "Philips login for %s succeeded, but the account has no home",
+                    self._email,
+                )
+                self._set_detail(
+                    f"Signed in as {self._email}, "
+                    "but GET /api/homes returned no homes for this account.",
+                    is_bug=False,
+                )
+                errors["base"] = "no_homes"
+            except CannotConnect as err:
+                self._set_detail(_describe(err))
                 errors["base"] = "cannot_connect"
-            except Exception:
+            except Exception as err:
                 _LOGGER.exception("Unexpected Philips OTP login failure")
+                self._set_detail(_describe(err))
                 errors["base"] = "unknown"
         return self.async_show_form(
             step_id="code",
             data_schema=vol.Schema({vol.Required("code"): str}),
             errors=errors,
-            description_placeholders={"email": self._email},
+            description_placeholders=self._placeholders(),
         )
 
     async def async_step_settings(
@@ -217,18 +313,21 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):  # type: ignore[call
             return self.async_abort(reason="unknown_entry")
         errors: Dict[str, str] = {}
         if user_input is not None:
+            self._set_detail("")
             self._email = user_input["email"].strip().lower()
             try:
                 response = await (await self._get_auth()).request_email_code(self._email)
                 self._vtoken = response.get("vToken")
                 return await self.async_step_reconfigure_code()
-            except AuthError:
+            except AuthError as err:
                 _LOGGER.exception("Could not send Philips reconfiguration code")
+                self._set_detail(_describe(err))
                 errors["base"] = "cannot_connect"
         return self.async_show_form(
             step_id="reconfigure",
             data_schema=vol.Schema({vol.Required("email"): str}),
             errors=errors,
+            description_placeholders=self._placeholders(),
         )
 
     async def async_step_reconfigure_code(
@@ -237,6 +336,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):  # type: ignore[call
         """Validate the OTP and replace credentials on the existing entry."""
         errors: Dict[str, str] = {}
         if user_input is not None and self._entry is not None:
+            self._set_detail("")
             try:
                 tokens = await (await self._get_auth()).login_with_email_code(
                     self._email, user_input["code"], self._vtoken
@@ -253,7 +353,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):  # type: ignore[call
                 finally:
                     await client.close()
                 if not homes:
-                    raise CannotConnect("No Philips homes were found")
+                    raise NoHomes
                 await self._close_auth()
                 return self.async_update_reload_and_abort(
                     self._entry,
@@ -265,20 +365,40 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):  # type: ignore[call
                         CONF_HOME_IDS: [str(home.id) for home in homes],
                     },
                 )
-            except InvalidAuth:
+            except InvalidAuth as err:
+                _LOGGER.exception("Philips login rejected the credentials")
+                self._set_detail(_describe(err))
                 errors["base"] = "invalid_auth"
-            except AuthError:
+            except AuthError as err:
+                _LOGGER.exception("Philips OTP login failed")
+                self._set_detail(_describe(err))
                 errors["base"] = "invalid_auth"
-            except CannotConnect:
+            except NoHomes:
+                # The form tells the user what to do. This line exists so the
+                # cause is also in a log they paste into a bug report, where
+                # the form text is not.
+                _LOGGER.warning(
+                    "Philips login for %s succeeded, but the account has no home",
+                    self._email,
+                )
+                self._set_detail(
+                    f"Signed in as {self._email}, "
+                    "but GET /api/homes returned no homes for this account.",
+                    is_bug=False,
+                )
+                errors["base"] = "no_homes"
+            except CannotConnect as err:
+                self._set_detail(_describe(err))
                 errors["base"] = "cannot_connect"
-            except Exception:
+            except Exception as err:
                 _LOGGER.exception("Unexpected Philips reconfiguration failure")
+                self._set_detail(_describe(err))
                 errors["base"] = "unknown"
         return self.async_show_form(
             step_id="reconfigure_code",
             data_schema=vol.Schema({vol.Required("code"): str}),
             errors=errors,
-            description_placeholders={"email": self._email},
+            description_placeholders=self._placeholders(),
         )
 
     async def async_step_reauth(self, flow_input: dict) -> FlowResult:
@@ -293,23 +413,28 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):  # type: ignore[call
         """Collect the re-authentication email."""
         errors: Dict[str, str] = {}
         if user_input is not None:
+            self._set_detail("")
             self._email = user_input["email"].strip().lower()
             try:
                 response = await (await self._get_auth()).request_email_code(self._email)
                 self._vtoken = response.get("vToken")
                 return await self.async_step_reauth_code()
-            except AuthError:
+            except AuthError as err:
+                _LOGGER.exception("Could not send Philips re-authentication code")
+                self._set_detail(_describe(err))
                 errors["base"] = "cannot_connect"
         return self.async_show_form(
             step_id="reauth_user",
             data_schema=vol.Schema({vol.Required("email"): str}),
             errors=errors,
+            description_placeholders=self._placeholders(),
         )
 
     async def async_step_reauth_code(self, user_input: Optional[Dict[str, Any]] = None) -> FlowResult:
         """Apply refreshed tokens to the existing entry."""
         errors: Dict[str, str] = {}
         if user_input is not None and self._entry is not None:
+            self._set_detail("")
             try:
                 tokens = await (await self._get_auth()).login_with_email_code(
                     self._email, user_input["code"], self._vtoken
@@ -329,20 +454,26 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):  # type: ignore[call
                         CONF_ID_TOKEN: tokens.get("id_token"),
                     },
                 )
-            except InvalidAuth:
+            except InvalidAuth as err:
+                _LOGGER.exception("Philips login rejected the credentials")
+                self._set_detail(_describe(err))
                 errors["base"] = "invalid_auth"
-            except AuthError:
+            except AuthError as err:
+                _LOGGER.exception("Philips OTP login failed")
+                self._set_detail(_describe(err))
                 errors["base"] = "invalid_auth"
-            except CannotConnect:
+            except CannotConnect as err:
+                self._set_detail(_describe(err))
                 errors["base"] = "cannot_connect"
-            except Exception:
+            except Exception as err:
                 _LOGGER.exception("Unexpected Philips re-authentication failure")
+                self._set_detail(_describe(err))
                 errors["base"] = "unknown"
         return self.async_show_form(
             step_id="reauth_code",
             data_schema=vol.Schema({vol.Required("code"): str}),
             errors=errors,
-            description_placeholders={"email": self._email},
+            description_placeholders=self._placeholders(),
         )
 
 
