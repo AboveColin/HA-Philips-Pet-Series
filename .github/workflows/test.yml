@@ -1,0 +1,23 @@
+name: Tests
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+
+      # No Home Assistant install: the modules under test are deliberately free
+      # of Home Assistant imports, which is what keeps this job to a few seconds
+      # instead of pulling the whole framework.
+      - run: pip install pytest
+
+      - run: python -m pytest tests -q
