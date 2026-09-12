@@ -1,13 +1,11 @@
 from __future__ import annotations
 
 import asyncio
-import importlib
 import ipaddress
 import json
 import datetime as dt
 import logging
 import os
-import sys
 from datetime import timedelta
 
 from homeassistant.config_entries import ConfigEntry
@@ -21,12 +19,6 @@ from homeassistant.helpers.storage import Store
 from homeassistant.util import dt as dt_util
 
 _LOGGER = logging.getLogger(__name__)
-
-# petsseries uses the generic ``tuya_mobile`` package for encrypted mobile API
-# calls. It is vendored because that package is intentionally not published on
-# PyPI yet; installing this integration must not require a manual package copy.
-if "tuya_mobile" not in sys.modules:
-    sys.modules["tuya_mobile"] = importlib.import_module(".tuya_mobile", __package__)
 
 try:
     import petsseries
