@@ -82,7 +82,7 @@ _RESTART_MAX_ATTEMPTS = 8
 # demand (no binaries shipped in this repo). A matching binary dropped into
 # ./bin/ overrides the download (development / offline installs).
 BRIDGE_BINARY_REPO = "AboveColin/tuya-ipc-terminal"
-BRIDGE_BINARY_TAG = "v1.0.0"
+BRIDGE_BINARY_TAG = "v1.0.1"
 _BRIDGE_ARCH_MAP = {
     "x86_64": "amd64",
     "amd64": "amd64",
