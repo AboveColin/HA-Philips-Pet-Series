@@ -41,8 +41,9 @@ say which model you have. Adding one is usually a small change.
 ## Before you start
 
 You need Home Assistant with [HACS](https://hacs.xyz/) installed, and your
-feeder already set up in the Philips Pet Series app on a Philips or home.id
-account. If it is not paired yet, do that in the app first.
+feeder already set up in the Philips Pet Series app or the Philips HomeID app,
+on a Philips or home.id account. If it is not paired yet, do that in the app
+first. The integration finds feeders from both apps with one login.
 
 ## Installing
 

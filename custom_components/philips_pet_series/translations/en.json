@@ -94,7 +94,7 @@
     },
     "error": {
       "cannot_connect": "Could not complete the Philips sign-in. The reason is shown with this form.",
-      "no_homes": "Signed in, but this Philips account has no home yet. Open the Philips Pet Series app, finish setting up your feeder so a home is created, then try again.",
+      "no_homes": "Signed in, but this Philips account has no home yet. Open the Philips Pet Series app or the Philips HomeID app, finish setting up your feeder so a home is created, then try again.",
       "invalid_auth": "The code was invalid or expired. Request a new code and try again.",
       "invalid_tuya_support": "Tuya support is invalid or missing dependencies.",
       "auth_url_failed": "Failed to generate authorization URL. Please try again.",

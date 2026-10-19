@@ -26,17 +26,15 @@ from aiohttp import web
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
-from tuya_mobile import mqtt_client_id, mqtt_credentials
 
 from homeassistant.helpers.network import get_url
 
+from .camera_mqtt import mqtt_settings
 from .const import CONF_CAMERA_MODE, CONF_IDLE_TIMEOUT
 
 _LOGGER = logging.getLogger(__name__)
 
 BRIDGE_PORT_BASE = 8560
-BRIDGE_PACKAGE = "com.versuni.nbx.petsseries"
-BRIDGE_PARTNER_ID = "p2065237"
 CAMERA_PRODUCT_PREFIXES = ("PAW53",)
 
 # Feeders allow only a small number of simultaneous P2P live sessions, and
@@ -77,11 +75,6 @@ _FAILURE_WINDOW = 60.0
 _RESTART_BACKOFF_START = 5
 _RESTART_BACKOFF_MAX = 300
 _RESTART_MAX_ATTEMPTS = 8
-
-# Tuya's mobile API and MQTT brokers are region-specific and share a host
-# suffix ("a1.tuyaeu.com" -> "m1.tuyaeu.com").
-_DEFAULT_MQTT_HOST = "m1.tuyaeu.com"
-_MQTT_PORT = 8883
 
 
 # The camera bridge binary is cross-compiled in CI and published as release
@@ -423,52 +416,15 @@ class PhilipsCameraBridgeManager:
                 if local_key:
                     webrtc["localKey"] = local_key
 
-                mobile = self.client._tuya_mobile
-                if mobile is None or not mobile.uid or not mobile.sid or not mobile.ecode:
-                    raise RuntimeError("Tuya mobile session has no MQTT fields")
-                mqtt = await asyncio.to_thread(
-                    mqtt_credentials,
-                    mobile.signer,
-                    uid=mobile.uid,
-                    sid=mobile.sid,
-                    ecode=mobile.ecode,
-                    partner_id=BRIDGE_PARTNER_ID,
-                )
-                mqtt["publish_topic"] = f"smart/mb/out/{device_id}"
-                mqtt["subscribe_topic"] = f"smart/mb/in/{device_id}"
-                webrtc["mqtt"] = {
-                    **mqtt,
-                    "broker": self._mqtt_broker(mobile),
-                    "client_id": mqtt_client_id(BRIDGE_PACKAGE),
-                    "uid": mobile.uid,
-                }
+                # The session of the Philips app that holds this camera: a
+                # HomeID feeder signs MQTT as the HomeID app, not Pet Series.
+                tuya = await self.client.tuya_session(device_id)
+                webrtc["mqtt"] = await mqtt_settings(tuya, device_id)
+
             return web.json_response(webrtc)
         except Exception as err:
             _LOGGER.error("Unable to prepare camera bridge credentials: %s", err)
             return web.json_response({"error": "credential refresh failed"}, status=502)
-
-    @staticmethod
-    def _mqtt_broker(mobile: Any) -> str:
-        """Derive the regional MQTT broker from the session's API endpoint.
-
-        Tuya assigns each account to a regional data centre and the mobile API
-        host tracks it ("a1.tuyaeu.com", "a1.tuyaus.com", ...).  The signing
-        client rewrites its endpoint from the login response, so the MQTT broker
-        has to follow it -- pinning the EU broker breaks every other region.
-        """
-        host = ""
-        try:
-            host = urlsplit(getattr(mobile, "mobile_url", "") or "").hostname or ""
-        except ValueError:
-            host = ""
-        labels = host.split(".")
-        if len(labels) >= 2 and labels[-1] and labels[-2]:
-            # Swap only the leading service label ("a1" -> "m1"), keeping the
-            # regional domain intact.
-            broker_host = ".".join(["m1", *labels[1:]])
-        else:
-            broker_host = _DEFAULT_MQTT_HOST
-        return f"ssl://{broker_host}:{_MQTT_PORT}"
 
     def _authorized(self, request: web.Request) -> bool:
         expected = f"Bearer {self._token}"
