@@ -16,8 +16,8 @@
   "iot_class": "cloud_polling",
   "issue_tracker": "https://github.com/AboveColin/HA-Philips-Pet-Series/issues",
   "requirements": [
-    "petsseries==1.2.0b1",
+    "petsseries==1.2.0b2",
     "tuya-mobile==1.2.0"
   ],
-  "version": "1.4.0b2"
+  "version": "1.4.0b3"
 }
