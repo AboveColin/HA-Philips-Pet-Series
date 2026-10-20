@@ -411,6 +411,16 @@ class PhilipsCameraBridgeManager:
                 webrtc = await self.client.get_cloud_webrtc_config(device_id)
                 if not webrtc:
                     raise RuntimeError("Tuya returned an empty WebRTC configuration")
+                if webrtc.get("errorCode") or webrtc.get("success") is False or not webrtc.get("motoId"):
+                    # Tuya reports a refusal as a normal reply, so name it here
+                    # instead of passing it on to the bridge as a config.
+                    raise RuntimeError(
+                        f"Tuya refused the WebRTC configuration for device {device_id}: "
+                        f"errorCode={webrtc.get('errorCode')!r} "
+                        f"errorMsg={webrtc.get('errorMsg')!r} "
+                        f"motoId_present={bool(webrtc.get('motoId'))} "
+                        f"reply_keys={sorted(webrtc)}"
+                    )
                 definition = await self.client.get_cloud_device_definition(device_id)
                 local_key = definition.get("localKey") if isinstance(definition, dict) else None
                 if local_key:
@@ -703,10 +713,14 @@ class PhilipsCameraBridgeManager:
         got = hashlib.sha256(data).hexdigest()
         if got != want:
             raise RuntimeError(f"camera bridge checksum mismatch for {asset}")
-        dest.parent.mkdir(parents=True, exist_ok=True)
         tmp = dest.with_suffix(dest.suffix + ".part")
-        tmp.write_bytes(data)
-        tmp.replace(dest)
+
+        def _store() -> None:
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            tmp.write_bytes(data)
+            tmp.replace(dest)
+
+        await asyncio.to_thread(_store)
         _LOGGER.info("Camera bridge %s ready (%d bytes)", asset, len(data))
 
 
