@@ -238,7 +238,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):  # type: ignore[call
                 )
                 self._set_detail(
                     f"Signed in as {self._email}, "
-                    "but GET /api/homes returned no homes for this account.",
+                    "but neither the Pet Series nor the HomeID backend has a home for this account.",
                     is_bug=False,
                 )
                 errors["base"] = "no_homes"
@@ -383,7 +383,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):  # type: ignore[call
                 )
                 self._set_detail(
                     f"Signed in as {self._email}, "
-                    "but GET /api/homes returned no homes for this account.",
+                    "but neither the Pet Series nor the HomeID backend has a home for this account.",
                     is_bug=False,
                 )
                 errors["base"] = "no_homes"

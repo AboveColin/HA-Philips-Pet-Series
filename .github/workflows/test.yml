@@ -17,7 +17,8 @@ jobs:
 
       # No Home Assistant install: the modules under test are deliberately free
       # of Home Assistant imports, which is what keeps this job to a few seconds
-      # instead of pulling the whole framework.
-      - run: pip install pytest
+      # instead of pulling the whole framework. tuya-mobile is the version the
+      # manifest pins; camera_mqtt.py signs with it.
+      - run: pip install pytest "tuya-mobile==1.2.0"
 
       - run: python -m pytest tests -q

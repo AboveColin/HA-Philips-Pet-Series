@@ -41,8 +41,9 @@ say which model you have. Adding one is usually a small change.
 ## Before you start
 
 You need Home Assistant with [HACS](https://hacs.xyz/) installed, and your
-feeder already set up in the Philips Pet Series app on a Philips or home.id
-account. If it is not paired yet, do that in the app first.
+feeder already set up in the Philips Pet Series app or the Philips HomeID app,
+on a Philips or home.id account. If it is not paired yet, do that in the app
+first. The integration finds feeders from both apps with one login.
 
 ## Installing
 
@@ -79,6 +80,12 @@ connects only while something is actually watching, and lets go afterwards.
 That suits normal dashboard use. If you want a recorder pulling the stream
 around the clock, switch **Camera streaming** to **Always on** in the
 integration options, and expect the phone app to lose live view while it runs.
+
+The feeder sends its video as HEVC (H.265), and not every browser can play
+that. Firefox, for example, shows only the still image. If the live picture does
+not start, try a Chromium-based browser such as Chrome, or convert the stream to
+H.264 as described in
+[docs/nvr.md](docs/nvr.md#option-b-recording-plus-live-view-in-a-web-browser).
 
 Recording in Frigate, go2rtc or a similar NVR is covered in
 **[docs/nvr.md](docs/nvr.md)**, including which settings to change first and
