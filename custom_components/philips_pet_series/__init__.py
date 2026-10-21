@@ -162,6 +162,9 @@ class PhilipsPetsSeriesDataUpdateCoordinator(DataUpdateCoordinator):
             events_by_home_and_type = {}
             invites_by_home = {}
             settings = {}
+            # The switches of the home mode of each device, as the backend
+            # gives them. settings[device.id] also holds tuya_status.
+            mode_settings = {}
             full_settings = {}
             firmware_info = {}
             product_firmware_info = {}
@@ -247,9 +250,11 @@ class PhilipsPetsSeriesDataUpdateCoordinator(DataUpdateCoordinator):
                     try:
                         device_settings = await self._client.get_settings(home, device.id)
                         settings[device.id] = device_settings or {}
+                        mode_settings[device.id] = dict(settings[device.id])
                     except Exception as e:
                         _LOGGER.warning("Failed to fetch settings for device %s: %s", device.id, e)
                         settings[device.id] = {}
+                        mode_settings[device.id] = {}
 
                     # Fetch full settings
                     try:
@@ -358,6 +363,7 @@ class PhilipsPetsSeriesDataUpdateCoordinator(DataUpdateCoordinator):
                 "events_by_home_and_type": events_by_home_and_type,
                 "event_types": event_types,
                 "settings": settings,
+                "mode_settings": mode_settings,
                 "full_settings": full_settings,
                 "firmware_info": firmware_info,
                 "device_definitions": device_definitions,

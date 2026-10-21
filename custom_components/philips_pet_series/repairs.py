@@ -57,6 +57,17 @@ def _registry_device(
     return device_registry.async_get_device(identifiers={(DOMAIN, device_id)})
 
 
+def _remove_from_entry(
+    device_registry: dr.DeviceRegistry, device_entry_id: str, entry_id: str
+) -> None:
+    """Remove a device from this entry only.
+
+    A feeder with a MAC address can share its registry device with a router
+    integration. Home Assistant removes the device when no entry is left.
+    """
+    device_registry.async_update_device(device_entry_id, remove_config_entry_id=entry_id)
+
+
 class DeviceGoneRepairFlow(RepairsFlow):
     """Move the entities of a gone feeder to its new device, or remove it."""
 
@@ -133,7 +144,7 @@ class DeviceGoneRepairFlow(RepairsFlow):
 
     async def _async_remove(self, coordinator, old: dr.DeviceEntry, old_id: str) -> FlowResult:
         """Remove the old device and its entities."""
-        dr.async_get(self.hass).async_remove_device(old.id)
+        _remove_from_entry(dr.async_get(self.hass), old.id, self._entry_id)
         await coordinator.async_forget_meals(old_id)
         ir.async_delete_issue(self.hass, DOMAIN, self._issue_id)
         return self.async_create_entry(data={})
@@ -181,7 +192,7 @@ class DeviceGoneRepairFlow(RepairsFlow):
             area_id=new_device.area_id or old.area_id,
             name_by_user=new_device.name_by_user or old.name_by_user,
         )
-        device_registry.async_remove_device(old.id)
+        _remove_from_entry(device_registry, old.id, self._entry_id)
         _LOGGER.info(
             "Moved %d entities from device %s to device %s, removed %d",
             len(moves), old_id, new_id, len(drops),

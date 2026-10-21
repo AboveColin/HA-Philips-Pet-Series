@@ -1,5 +1,6 @@
 """Base entity for Philips Pets Series integration."""
 
+from homeassistant.helpers.device_registry import CONNECTION_NETWORK_MAC, format_mac
 from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
@@ -49,13 +50,19 @@ class PhilipsPetsSeriesEntity(CoordinatorEntity):
         )
         model = self._device.product_ctn
 
-        return DeviceInfo(
+        info = DeviceInfo(
             identifiers={(DOMAIN, self._device.id)},
             name=self._device.name,
             manufacturer="Philips",
             model=model,
             sw_version=sw_version,
         )
+        # The HomeID backend gives the MAC address. With it, Home Assistant
+        # links the feeder to the same device in a router integration.
+        mac = getattr(self._device, "mac_address", None)
+        if mac:
+            info["connections"] = {(CONNECTION_NETWORK_MAC, format_mac(mac))}
+        return info
 
     @property
     def available(self) -> bool:

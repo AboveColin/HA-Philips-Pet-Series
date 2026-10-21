@@ -23,6 +23,12 @@ nothing to copy across from another app.
 on-screen display, anti-flicker, siren and volume, all as entities. The card
 surfaces the four you reach for; the rest live on the device page.
 
+**App settings.** The switches the Philips app keeps for each feeder: the
+camera on or off, video recording on motion, and the app's push notifications.
+A feeder in the HomeID app has a notification switch for each feeder event,
+such as meal dispensed, low food and the desiccant bag reminder. A feeder in
+the Pet Series app has the motion notification only.
+
 **Knowing what is going on.** Online and offline status, food level, feeding
 faults, the filter-replacement reminder, and firmware versions. Recent events
 such as motion, meals and faults arrive as sensors you can trigger automations

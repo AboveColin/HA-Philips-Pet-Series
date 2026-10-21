@@ -3,6 +3,7 @@ from __future__ import annotations
 from homeassistant.components.switch import SwitchEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.const import EntityCategory
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
@@ -47,7 +48,82 @@ async def async_setup_entry(
                         coordinator, client, home, device, str(dp_id), dp_code, dp_path
                     ))
 
+    # The switches of the home mode come from the backend, so each feeder
+    # gets the ones its app has. A Pet Series feeder had three, a HomeID
+    # feeder ten.
+    for home, device in iter_home_devices(coordinator):
+        mode_settings = coordinator.data.get("mode_settings", {}).get(device.id, {})
+        for key, value in mode_settings.items():
+            if isinstance(value, bool):
+                switches.append(PhilipsPetsSeriesModeSwitch(coordinator, client, home, device, key))
+
     async_add_entities(switches)
+
+
+# Names and icons of the known home mode switches. A key that is not here
+# still gets a switch, named after the key.
+MODE_SWITCHES = {
+    "device_active": ("Camera", "mdi:cctv"),
+    "record_video_motion": ("Record video on motion", "mdi:record-rec"),
+    "push_notification_motion": ("Motion notifications", "mdi:motion-sensor"),
+    "push_notification_device_offline": ("Offline notifications", "mdi:wifi-off"),
+    "push_notification_meal_enabled": ("Meal enabled notifications", "mdi:calendar-check"),
+    "push_notification_meal_dispensed": ("Meal dispensed notifications", "mdi:food-drumstick"),
+    "push_notification_meal_upcoming": ("Upcoming meal notifications", "mdi:clock-outline"),
+    "push_notification_food_level_low": ("Low food notifications", "mdi:food-off"),
+    "push_notification_food_outlet_stuck": ("Food outlet stuck notifications", "mdi:alert-circle"),
+    "push_notification_desiccant_bag": ("Desiccant bag notifications", "mdi:water-off"),
+}
+
+
+class PhilipsPetsSeriesModeSwitch(PhilipsPetsSeriesEntity, SwitchEntity):
+    """A switch of the home mode of a device on the Philips backend.
+
+    "device_active" turns the camera on and off. The push_notification_*
+    switches control the push notifications of the app.
+    """
+
+    def __init__(self, coordinator, client, home, device, key):
+        super().__init__(coordinator, device, home)
+        self._client = client
+        self._key = key
+        name, icon = MODE_SWITCHES.get(key, (key.replace("_", " ").capitalize(), "mdi:toggle-switch"))
+        self._attr_unique_id = f"{device.id}_mode_{key}"
+        self._attr_name = name
+        self._attr_icon = icon
+        if key != "device_active":
+            self._attr_entity_category = EntityCategory.CONFIG
+
+    def _settings(self) -> dict:
+        data = self.coordinator.data or {}
+        return data.get("mode_settings", {}).get(self._device.id, {})
+
+    @property
+    def is_on(self) -> bool | None:
+        value = self._settings().get(self._key)
+        return value if isinstance(value, bool) else None
+
+    @property
+    def available(self) -> bool:
+        return super().available and isinstance(self._settings().get(self._key), bool)
+
+    async def _async_set(self, value: bool) -> None:
+        try:
+            ok = await self._client.set_mode_setting(self._home, self._device.id, self._key, value)
+        except Exception as e:
+            raise HomeAssistantError(f"Failed to set {self._attr_name}: {e}") from e
+        if not ok:
+            raise HomeAssistantError(f"The Philips backend did not change {self._attr_name}")
+        # A full refresh reads every device and event type again. Keep the
+        # new value until the next scheduled refresh reads it back.
+        self._settings()[self._key] = value
+        self.async_write_ha_state()
+
+    async def async_turn_on(self, **kwargs):
+        await self._async_set(True)
+
+    async def async_turn_off(self, **kwargs):
+        await self._async_set(False)
 
 class PhilipsPetsSeriesSwitch(PhilipsPetsSeriesEntity, SwitchEntity):
     """Representation of a Philips Pets Series switch."""
