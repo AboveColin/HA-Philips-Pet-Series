@@ -40,7 +40,7 @@ from .const import (
     DOMAIN,
     REMOVED_DP_SENSORS,
 )
-from . import firmware, websocket
+from . import eventlog, firmware, websocket
 from .bridge import PhilipsCameraBridgeManager
 from .frontend import JSModuleRegistration
 from .lanbeacon import BeaconListener
@@ -197,6 +197,15 @@ class PhilipsPetsSeriesDataUpdateCoordinator(DataUpdateCoordinator):
 
                         key = f"{home.id}_{event_type_str}"
                         events_by_home_and_type[key] = home_events
+                        _LOGGER.debug(
+                            "Events in home %s from %s to %s: %s",
+                            eventlog.short_id(home.id),
+                            from_date.isoformat(),
+                            to_date.isoformat(),
+                            eventlog.describe_events(
+                                event_type_str, home_events, home_devices
+                            ),
+                        )
                     except Exception as e:
                         _LOGGER.warning("Failed to fetch events %s for home %s: %s", event_type, home.id, e)
 

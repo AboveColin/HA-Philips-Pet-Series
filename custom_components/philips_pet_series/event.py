@@ -17,6 +17,7 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from . import DOMAIN, PhilipsPetsSeriesDataUpdateCoordinator
+from .eventlog import short_id
 from .entity import PhilipsPetsSeriesEntity, iter_home_devices
 
 _LOGGER = logging.getLogger(__name__)
@@ -52,6 +53,7 @@ class PhilipsPetsSeriesEventEntity(PhilipsPetsSeriesEntity, EventEntity):
         self._attr_name = self._event_type.replace("_", " ").capitalize()
         self._attr_event_types = [self._event_type]
         self._last_event_id: str | None = None
+        self._last_event_time: str | None = None
 
     async def async_added_to_hass(self) -> None:
         """Adopt the current history without firing for it.
@@ -61,8 +63,17 @@ class PhilipsPetsSeriesEventEntity(PhilipsPetsSeriesEntity, EventEntity):
         """
         await super().async_added_to_hass()
         latest = self._latest_event()
-        if latest is not None:
-            self._last_event_id = str(latest.id)
+        if latest is None:
+            _LOGGER.debug("%s: no event for this device yet", self.entity_id)
+            return
+        self._last_event_id = str(latest.id)
+        self._last_event_time = latest.time
+        _LOGGER.debug(
+            "%s: event %s at %s is already in the past, waiting for a newer one",
+            self.entity_id,
+            short_id(latest.id),
+            latest.time,
+        )
 
     def _latest_event(self):
         """This device's newest event of this type, if any.
@@ -89,8 +100,26 @@ class PhilipsPetsSeriesEventEntity(PhilipsPetsSeriesEntity, EventEntity):
         latest = self._latest_event()
         if latest is not None:
             event_id = str(latest.id)
+            if event_id == self._last_event_id and latest.time != self._last_event_time:
+                # If the cloud updates an event in place, this entity does not
+                # fire for it. The line shows in a report whether that occurs.
+                _LOGGER.debug(
+                    "%s: event %s moved from %s to %s with the same id, not fired",
+                    self.entity_id,
+                    short_id(event_id),
+                    self._last_event_time,
+                    latest.time,
+                )
+                self._last_event_time = latest.time
             if event_id != self._last_event_id:
+                _LOGGER.debug(
+                    "%s: fired for event %s at %s",
+                    self.entity_id,
+                    short_id(event_id),
+                    latest.time,
+                )
                 self._last_event_id = event_id
+                self._last_event_time = latest.time
                 self._trigger_event(
                     self._event_type,
                     {
