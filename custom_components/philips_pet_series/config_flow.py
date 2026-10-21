@@ -27,7 +27,6 @@ from .const import (
     CONF_CAMERA_MODE,
     CONF_COUNTRY,
     CONF_IDLE_TIMEOUT,
-    CONF_HOME_IDS,
     CONF_ID_TOKEN,
     CONF_LANGUAGE,
     CONF_REFRESH_TOKEN,
@@ -217,7 +216,6 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):  # type: ignore[call
                     CONF_ACCESS_TOKEN: access_token,
                     CONF_REFRESH_TOKEN: refresh_token,
                     CONF_ID_TOKEN: tokens.get("id_token"),
-                    CONF_HOME_IDS: [str(home.id) for home in homes],
                 }
                 return await self.async_step_settings()
             except InvalidAuth as err:
@@ -362,7 +360,6 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):  # type: ignore[call
                         CONF_ACCESS_TOKEN: access_token,
                         CONF_REFRESH_TOKEN: refresh_token,
                         CONF_ID_TOKEN: tokens.get("id_token"),
-                        CONF_HOME_IDS: [str(home.id) for home in homes],
                     },
                 )
             except InvalidAuth as err:

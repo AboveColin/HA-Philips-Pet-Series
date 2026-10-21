@@ -31,6 +31,8 @@ CONF_ID_TOKEN = "id_token"
 CONF_CALLBACK_URL = "callback_url"
 CONF_CODE_VERIFIER = "code_verifier"
 CONF_STATE = "state"
+# Older entries carry the home ids of the last login. The coordinator now
+# reads every home of the account, so nothing reads this key.
 CONF_HOME_IDS = "home_ids"
 
 # Regional config keys — chosen in the config flow, defaulted from HA's own

@@ -11,7 +11,9 @@ from datetime import timedelta
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
+from homeassistant.helpers import issue_registry as ir
 from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryNotReady
 from homeassistant.loader import async_get_integration
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
@@ -32,7 +34,6 @@ from petsseries import PetsSeriesClient
 
 from .const import (
     CONF_COUNTRY,
-    CONF_HOME_IDS,
     CONF_ID_TOKEN,
     CONF_LANGUAGE,
     CONF_TIMEZONE,
@@ -40,7 +41,7 @@ from .const import (
     DOMAIN,
     REMOVED_DP_SENSORS,
 )
-from . import eventlog, firmware, websocket
+from . import eventlog, firmware, migration, websocket
 from .bridge import PhilipsCameraBridgeManager
 from .frontend import JSModuleRegistration
 from .lanbeacon import BeaconListener
@@ -75,8 +76,8 @@ class PhilipsPetsSeriesDataUpdateCoordinator(DataUpdateCoordinator):
         hass: HomeAssistant,
         client: PetsSeriesClient,
         delay_between_calls: float = 1,
-        home_ids: list[str] | None = None,
         tuya_device_id: str | None = None,
+        entry_id: str | None = None,
     ):
         """Initialize the coordinator."""
         super().__init__(
@@ -87,10 +88,14 @@ class PhilipsPetsSeriesDataUpdateCoordinator(DataUpdateCoordinator):
         )
         self._client = client
         self.delay_between_calls = delay_between_calls
-        self.home_ids = set(home_ids or [])
         self._tuya_device_id = tuya_device_id
         self._ota_store = Store(hass, 1, f"{DOMAIN}.ota_history")
         self.ota_history: dict[str, list[dict]] = {}
+        # The last meal schedule of each feeder. A feeder that moves to another
+        # app loses its meals, and the "new device id" repair creates them
+        # again from here.
+        self._meal_store = Store(hass, 1, f"{DOMAIN}.meal_schedules.{entry_id or 'default'}")
+        self.saved_meals: dict[str, dict] | None = None
 
     def tuya_device_id(self, device) -> str:
         """Return the Tuya devId associated with a Philips device."""
@@ -111,6 +116,27 @@ class PhilipsPetsSeriesDataUpdateCoordinator(DataUpdateCoordinator):
         self.ota_history[device_id] = records
         await self._ota_store.async_save(self.ota_history)
 
+    async def async_load_saved_meals(self) -> dict[str, dict]:
+        """Return the saved meal schedules, loaded once."""
+        if self.saved_meals is None:
+            stored = await self._meal_store.async_load()
+            self.saved_meals = stored if isinstance(stored, dict) else {}
+        return self.saved_meals
+
+    async def _save_meal_schedules(self, devices: list, meals: list) -> None:
+        """Save the schedule of each listed device that has meals."""
+        saved = await self.async_load_saved_meals()
+        names = {str(device.id): str(device.name) for device in devices}
+        current = migration.schedules(devices, meals)
+        if migration.merge_saved(saved, current, names, dt_util.utcnow().isoformat()):
+            await self._meal_store.async_save(saved)
+
+    async def async_forget_meals(self, device_id: str) -> None:
+        """Drop the saved schedule of a device that Home Assistant removed."""
+        saved = await self.async_load_saved_meals()
+        if saved.pop(device_id, None) is not None:
+            await self._meal_store.async_save(saved)
+
     async def _async_update_data(self):
         """Fetch data from API."""
         try:
@@ -124,9 +150,13 @@ class PhilipsPetsSeriesDataUpdateCoordinator(DataUpdateCoordinator):
                     raise
                 self._client.session = None
                 homes = await self._client.get_homes()
-            if self.home_ids:
-                homes = [home for home in homes if str(home.id) in self.home_ids]
+            # Every home of the account is polled. A feeder that moves to the
+            # HomeID app lands in a home that did not exist at sign-in.
             devices = []
+            # False when a device list could not be read: a device missing
+            # from it then does not mean the device is gone.
+            devices_complete = True
+            meal_devices = []
             home_devices_by_home = {}
             meals = []
             events_by_home_and_type = {}
@@ -172,6 +202,7 @@ class PhilipsPetsSeriesDataUpdateCoordinator(DataUpdateCoordinator):
                     _LOGGER.debug("Fetched %d devices for home %s", len(home_devices), home.id)
                 except Exception as e:
                     _LOGGER.warning("Failed to fetch devices for home %s: %s", home.id, e)
+                    devices_complete = False
                     continue
 
                 await asyncio.sleep(self.delay_between_calls)
@@ -285,6 +316,7 @@ class PhilipsPetsSeriesDataUpdateCoordinator(DataUpdateCoordinator):
                 try:
                     home_meals = await self._client.meals.get_meals(home)
                     meals.extend(home_meals)
+                    meal_devices.extend(home_devices)
                     _LOGGER.debug("Fetched %d meals for home %s", len(home_meals), home.id)
                 except Exception as e:
                     _LOGGER.warning("Failed to fetch meals for home %s: %s", home.id, e)
@@ -298,6 +330,11 @@ class PhilipsPetsSeriesDataUpdateCoordinator(DataUpdateCoordinator):
                     _LOGGER.warning("Failed to fetch invites for home %s: %s", home.id, e)
 
                 await asyncio.sleep(self.delay_between_calls)
+
+            try:
+                await self._save_meal_schedules(meal_devices, meals)
+            except Exception as err:  # noqa: BLE001 - a store error must not stop the update
+                _LOGGER.warning("Failed to save the meal schedules: %s", err)
 
             base_data = {}
             base_data["tuya_status"] = tuya_status
@@ -315,6 +352,7 @@ class PhilipsPetsSeriesDataUpdateCoordinator(DataUpdateCoordinator):
                 "homes": homes,
                 "home_devices": home_devices_by_home,
                 "devices": devices,
+                "devices_complete": devices_complete,
                 "meals": meals,
                 "invites": invites_by_home,
                 "events_by_home_and_type": events_by_home_and_type,
@@ -394,7 +432,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         hass,
         client,
         delay_between_calls=0.5,
-        home_ids=data.get(CONF_HOME_IDS),
+        entry_id=entry.entry_id,
     )
 
     await coordinator.async_config_entry_first_refresh()
@@ -431,6 +469,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     _async_remove_stale_entities(hass, entry)
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+
+    @callback
+    def _async_after_update() -> None:
+        _async_check_gone_devices(hass, entry, coordinator)
+        hass.async_create_task(bridge.async_sync_devices())
+
+    entry.async_on_unload(coordinator.async_add_listener(_async_after_update))
+    _async_check_gone_devices(hass, entry, coordinator)
 
     # Register services
     await async_setup_services(hass, client)
@@ -658,6 +704,86 @@ def _async_remove_stale_entities(hass: HomeAssistant, entry: ConfigEntry) -> Non
         ):
             _LOGGER.debug("Removing stale entity %s", registry_entry.entity_id)
             registry.async_remove(registry_entry.entity_id)
+
+
+GONE_ISSUE_PREFIX = "device_gone_"
+
+
+@callback
+def _async_check_gone_devices(
+    hass: HomeAssistant, entry: ConfigEntry, coordinator: PhilipsPetsSeriesDataUpdateCoordinator
+) -> None:
+    """Raise a repair issue for each feeder that the account no longer lists.
+
+    A feeder that moves to the HomeID app, or is paired again, comes back under
+    a new device id. The issue offers to move the old entities to the new
+    device, or to remove the old device. It goes away by itself when the old
+    device id comes back.
+    """
+    data = coordinator.data or {}
+    if not coordinator.last_update_success or not data.get("devices_complete"):
+        return
+    current = {str(device.id): device for device in data.get("devices", [])}
+    device_registry = dr.async_get(hass)
+    registered: dict[str, dr.DeviceEntry] = {}
+    for device_entry in dr.async_entries_for_config_entry(device_registry, entry.entry_id):
+        philips_id = migration.philips_device_id(device_entry.identifiers, DOMAIN)
+        if philips_id is not None:
+            registered[philips_id] = device_entry
+
+    wanted: set[str] = set()
+    for philips_id, device_entry in registered.items():
+        if philips_id in current:
+            continue
+        issue_id = f"{GONE_ISSUE_PREFIX}{device_entry.id}"
+        wanted.add(issue_id)
+        replacements = migration.candidates(
+            device_entry.model, current.values(), set(registered)
+        )
+        ir.async_create_issue(
+            hass,
+            DOMAIN,
+            issue_id,
+            is_fixable=True,
+            is_persistent=False,
+            severity=ir.IssueSeverity.WARNING,
+            translation_key="device_moved" if replacements else "device_removed",
+            translation_placeholders={
+                "name": device_entry.name_by_user or device_entry.name or philips_id,
+                "model": device_entry.model or "",
+            },
+            data={"entry_id": entry.entry_id, "device_id": device_entry.id},
+        )
+
+    # Drop the issues of devices that came back or that the user removed.
+    for (domain, issue_id), issue in list(ir.async_get(hass).issues.items()):
+        if (
+            domain == DOMAIN
+            and issue_id.startswith(GONE_ISSUE_PREFIX)
+            and issue_id not in wanted
+            and (issue.data or {}).get("entry_id") == entry.entry_id
+        ):
+            ir.async_delete_issue(hass, DOMAIN, issue_id)
+
+
+async def async_remove_config_entry_device(
+    hass: HomeAssistant, entry: ConfigEntry, device_entry: dr.DeviceEntry
+) -> bool:
+    """Let the user delete a feeder or home that the account no longer lists."""
+    coordinator = (hass.data.get(DOMAIN, {}).get(entry.entry_id) or {}).get("coordinator")
+    data = getattr(coordinator, "data", None) or {}
+    if not data.get("devices_complete"):
+        # The device lists of this update are not complete, so "not listed"
+        # can be a read error.
+        return False
+    listed = {str(device.id) for device in data.get("devices", [])}
+    listed |= {f"{migration.HOME_PREFIX}{home.id}" for home in data.get("homes", [])}
+    if any(domain == DOMAIN and value in listed for domain, value in device_entry.identifiers):
+        return False
+    philips_id = migration.philips_device_id(device_entry.identifiers, DOMAIN)
+    if philips_id is not None and coordinator is not None:
+        await coordinator.async_forget_meals(philips_id)
+    return True
 
 
 async def _async_update_listener(hass: HomeAssistant, entry: ConfigEntry) -> None:

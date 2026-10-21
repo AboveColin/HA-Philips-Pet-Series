@@ -71,6 +71,23 @@ login is kept fresh in the background, so you should not need to do this again.
 If it ever does expire, Home Assistant shows a **Reconfigure** prompt that asks
 for a new code.
 
+### Moving a feeder to the HomeID app
+
+When you move a feeder from the Philips Pet Series app to the Philips HomeID
+app, or pair it again, Philips gives it a new device id. Home Assistant finds
+the feeder under the new id without a new login. The old device stays behind
+with unavailable entities, and **Settings**, then **Repairs** shows an issue
+for it. Open the issue and choose:
+
+- **Move to** the new feeder: the old entities go to the new device, so their
+  entity ids, history and dashboard cards stay. If Home Assistant saw the meal
+  schedule of the old feeder, the repair can also create those meals on the
+  new feeder, because the app removes them in the move.
+- **Remove the old device only**: the old device and its entities are removed.
+
+The camera address for Frigate and other recorders contains the device id, so
+change it after the move. See the [NVR guide](docs/nvr.md).
+
 ## A note about the camera
 
 The feeder only allows a couple of camera connections at once, and holding one

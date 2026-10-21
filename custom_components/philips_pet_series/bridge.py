@@ -285,6 +285,12 @@ class PhilipsCameraBridgeManager:
         if self._stopping or self.camera_mode == CAMERA_MODE_DISABLED:
             return None
         device_key = str(device.id)
+        data = getattr(self.coordinator, "data", None) or {}
+        if data.get("devices_complete") and device_key not in self._listed_device_ids():
+            # The account no longer lists this feeder (it moved to another app
+            # or was removed), so a session for it cannot work.
+            _LOGGER.debug("Not starting a camera bridge for %s: the account does not list it", device_key)
+            return None
         async with self._start_lock:
             bridge = self._processes.get(device_key)
             if bridge is not None and bridge.process.returncode is None:
@@ -307,6 +313,22 @@ class PhilipsCameraBridgeManager:
                 return None
             bridge = self._processes.get(device_key)
             return bridge.stream_url if bridge is not None else None
+
+    def _listed_device_ids(self) -> set[str]:
+        """Return the ids of the devices in the last coordinator update."""
+        data = getattr(self.coordinator, "data", None) or {}
+        return {str(device.id) for device in data.get("devices", [])}
+
+    async def async_sync_devices(self) -> None:
+        """Stop the bridges of devices that the account no longer lists."""
+        data = getattr(self.coordinator, "data", None) or {}
+        if self._stopping or not data.get("devices_complete"):
+            return
+        listed = self._listed_device_ids()
+        for device_key in list(self._processes):
+            if device_key not in listed:
+                _LOGGER.info("Stopping the camera bridge for %s: the account no longer lists it", device_key)
+                await self._async_stop_bridge(device_key)
 
     async def _async_reap_idle(self) -> None:
         """Release on-demand sessions once nothing has asked for the stream."""

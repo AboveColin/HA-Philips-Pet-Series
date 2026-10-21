@@ -60,7 +60,22 @@ class PhilipsPetsSeriesEntity(CoordinatorEntity):
     @property
     def available(self) -> bool:
         """Return if entity is available."""
-        return self.coordinator.last_update_success
+        return self.coordinator.last_update_success and device_listed(
+            self.coordinator, self._device.id
+        )
+
+
+def device_listed(coordinator, device_id) -> bool:
+    """Return False only when a complete device list leaves the device out.
+
+    A feeder that moved to another app, or was removed, is not in the list.
+    When one of the device calls failed, the list is not complete, and the
+    device keeps its state.
+    """
+    data = getattr(coordinator, "data", None) or {}
+    if not data.get("devices_complete"):
+        return True
+    return any(str(device.id) == str(device_id) for device in data.get("devices", []))
 
 
 def iter_home_devices(coordinator):

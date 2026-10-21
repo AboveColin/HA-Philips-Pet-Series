@@ -130,5 +130,51 @@
         "disabled": "Off"
       }
     }
+  },
+  "issues": {
+    "device_moved": {
+      "title": "{name} has a new device id",
+      "fix_flow": {
+        "step": {
+          "confirm": {
+            "title": "Replace or remove {name}",
+            "description": "The Philips account no longer lists {name}. A feeder that moves to the HomeID app, or is paired again, gets a new device id.\n\nMove the entities to the new device to keep their entity ids, history and dashboards. Entities that the new device does not have are removed.\n\nSaved meal schedule ({saved_at}):\n{meals}",
+            "data": {
+              "target": "Action",
+              "restore_meals": "Create the saved meals on the new device"
+            }
+          }
+        },
+        "abort": {
+          "not_loaded": "The integration is not loaded. Load it and try again.",
+          "device_gone": "The old device was already removed.",
+          "device_back": "The account lists the device again. No repair is necessary.",
+          "new_device_missing": "Home Assistant has no device for the new feeder yet. Reload the integration and try again.",
+          "meals_failed": "The entities were moved. These meals were not created: {failed}. Add them in the app."
+        }
+      }
+    },
+    "device_removed": {
+      "title": "{name} is no longer in your Philips account",
+      "fix_flow": {
+        "step": {
+          "confirm": {
+            "title": "Replace or remove {name}",
+            "description": "The Philips account no longer lists {name}. A feeder that moves to the HomeID app, or is paired again, gets a new device id.\n\nMove the entities to the new device to keep their entity ids, history and dashboards. Entities that the new device does not have are removed.\n\nSaved meal schedule ({saved_at}):\n{meals}",
+            "data": {
+              "target": "Action",
+              "restore_meals": "Create the saved meals on the new device"
+            }
+          }
+        },
+        "abort": {
+          "not_loaded": "The integration is not loaded. Load it and try again.",
+          "device_gone": "The old device was already removed.",
+          "device_back": "The account lists the device again. No repair is necessary.",
+          "new_device_missing": "Home Assistant has no device for the new feeder yet. Reload the integration and try again.",
+          "meals_failed": "The entities were moved. These meals were not created: {failed}. Add them in the app."
+        }
+      }
+    }
   }
 }

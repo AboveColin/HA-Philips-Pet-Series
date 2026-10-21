@@ -74,6 +74,10 @@ Two things worth knowing:
 - **You never use Frigate's address either** (`192.168.1.20`). Frigate does not
   need to refer to itself.
 
+If you move the feeder to the Philips HomeID app, or pair it again, it gets a
+new device id, and the camera address changes with it. Look up the new device
+id and change the address in Frigate.
+
 > ### Easy mistakes to avoid
 >
 > Writing `127.0.0.1:8560` instead of Home Assistant's real address.

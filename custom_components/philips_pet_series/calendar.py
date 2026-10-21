@@ -11,7 +11,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 import homeassistant.util.dt as dt_util
 
 from . import DOMAIN, PhilipsPetsSeriesDataUpdateCoordinator
-from .entity import iter_home_devices
+from .entity import device_listed, iter_home_devices
 from .meals import occurrences as meal_occurrences
 
 _LOGGER = logging.getLogger(__name__)
@@ -108,4 +108,6 @@ class PhilipsPetsSeriesCalendar(CalendarEntity):
     @property
     def available(self) -> bool:
         """Follow the coordinator so total API failure is visible."""
-        return self.coordinator.last_update_success
+        return self.coordinator.last_update_success and device_listed(
+            self.coordinator, self.device.id
+        )
