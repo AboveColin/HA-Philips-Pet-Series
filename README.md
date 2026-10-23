@@ -91,6 +91,12 @@ for a new code.
 
 ### Moving a feeder to the HomeID app
 
+Philips does not move a feeder for you. The HomeID app pairs the feeder
+again, and Philips removes its meals. Update this integration before you move
+the feeder, so that Home Assistant saves the meal schedule first. If the
+HomeID app says that the feeder is paired to another account, remove the
+feeder in the Pet Series app and try again.
+
 When you move a feeder from the Philips Pet Series app to the Philips HomeID
 app, or pair it again, Philips gives it a new device id. Home Assistant finds
 the feeder under the new id without a new login. The old device stays behind
