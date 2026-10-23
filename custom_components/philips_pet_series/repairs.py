@@ -114,16 +114,21 @@ class DeviceGoneRepairFlow(RepairsFlow):
             restore = bool(user_input.get("restore_meals")) and bool(meals)
             return await self._async_move(old, old_id, target, restore)
 
-        options = [
-            selector.SelectOptionDict(
-                value=str(d.id),
-                label=f"Move to {d.name} ({d.product_ctn})",
-            )
-            for d in replacements
-        ]
+        options = []
+        for d in replacements:
+            label = f"Move to {d.name} ({d.product_ctn})"
+            if str(d.id) in registered:
+                # A second feeder of the same model is also a candidate. The
+                # move replaces its entities, so say so.
+                label += ", which Home Assistant already has: its entities are replaced"
+            options.append(selector.SelectOptionDict(value=str(d.id), label=label))
         options.append(selector.SelectOptionDict(value=REMOVE, label="Remove the old device only"))
+        default = migration.default_target(replacements, registered)
+        target_key = (
+            vol.Required("target") if default is None else vol.Required("target", default=default)
+        )
         schema: dict[Any, Any] = {
-            vol.Required("target", default=options[0]["value"]): selector.SelectSelector(
+            target_key: selector.SelectSelector(
                 selector.SelectSelectorConfig(
                     options=options, mode=selector.SelectSelectorMode.LIST
                 )
@@ -201,7 +206,10 @@ class DeviceGoneRepairFlow(RepairsFlow):
 
         failed: list[str] = []
         coordinator = _entry_data(hass, self._entry_id).get("coordinator")
-        if restore and coordinator is not None:
+        if restore and coordinator is None:
+            # The reload did not set the entry up again, so no meal was made.
+            failed = [f"{r['time']} (not created)" for r in (self._saved or {}).get("meals") or []]
+        elif restore:
             client = _entry_data(hass, self._entry_id).get("client")
             failed = await self._async_restore_meals(coordinator, client, new_id)
             await coordinator.async_request_refresh()
@@ -215,7 +223,7 @@ class DeviceGoneRepairFlow(RepairsFlow):
         return self.async_create_entry(data={})
 
     async def _async_restore_meals(self, coordinator, client, new_id: str) -> list[str]:
-        """Create the saved meals on the new device. Return the failed times."""
+        """Create the saved meals on the new device. Return a line for each failed meal."""
         data = coordinator.data or {}
         homes = {home.id: home for home in data.get("homes", [])}
         home = next(
@@ -228,7 +236,7 @@ class DeviceGoneRepairFlow(RepairsFlow):
         )
         records = (self._saved or {}).get("meals") or []
         if home is None:
-            return [r["time"] for r in records]
+            return [f"{r['time']} (not created)" for r in records]
         taken = {
             t
             for m in data.get("meals", [])
@@ -248,11 +256,22 @@ class DeviceGoneRepairFlow(RepairsFlow):
             )
             try:
                 created = await client.meals.create_meal(home, meal)
-                if not record.get("enabled", True):
-                    await client.meals.set_meal_enabled(home, created.id, False)
             except Exception as err:  # noqa: BLE001 - report each meal, then go on
                 _LOGGER.warning("Could not create the meal at %s: %s", record["time"], err)
-                failed.append(record["time"])
+                failed.append(f"{record['time']} (not created)")
+                continue
+            if record.get("enabled", True):
+                continue
+            # The backend creates a meal switched on. A saved meal that was
+            # off must not feed, so a failure here is reported too.
+            try:
+                await client.meals.set_meal_enabled(home, created.id, False)
+            except Exception as err:  # noqa: BLE001
+                _LOGGER.warning(
+                    "Created the meal at %s, but could not switch it off: %s",
+                    record["time"], err,
+                )
+                failed.append(f"{record['time']} (created, but switched on)")
         return failed
 
 

@@ -42,6 +42,18 @@ def candidates(model: str | None, current: Iterable[Any], registered: set[str]) 
     return sorted(same, key=lambda d: (str(d.id) in registered, str(d.name), str(d.id)))
 
 
+def default_target(replacements: list[Any], registered: set[str]) -> str | None:
+    """Return the candidate to preselect, or None if the user must choose.
+
+    Only a feeder that is new to Home Assistant is preselected. A feeder that
+    it already has can be a second, working feeder of the same model, and a
+    move replaces that feeder's entities.
+    """
+    if replacements and str(replacements[0].id) not in registered:
+        return str(replacements[0].id)
+    return None
+
+
 def unique_id_moves(
     old_id: str, new_id: str, old_unique_ids: Iterable[str], new_unique_ids: set[str]
 ) -> tuple[dict[str, str], list[str]]:

@@ -6,6 +6,7 @@ import json
 import datetime as dt
 import logging
 import os
+import time
 from datetime import timedelta
 
 from homeassistant.config_entries import ConfigEntry
@@ -73,6 +74,11 @@ EVENT_HISTORY_DAYS = 7
 # event of a second device in the same home.
 EVENT_PAGE_SIZE = 200
 
+# Seconds between two reads of a feeder's voice recordings. The list changes
+# only when the user records a voice in the app, and each read is a Tuya cloud
+# call. A poll reads the list sooner when the active voice is not in it.
+VOICE_REFRESH_SECONDS = 3600
+
 
 class PhilipsPetsSeriesDataUpdateCoordinator(DataUpdateCoordinator):
     """Coordinator to fetch data for Philips Pets Series sensors."""
@@ -102,6 +108,8 @@ class PhilipsPetsSeriesDataUpdateCoordinator(DataUpdateCoordinator):
         # again from here.
         self._meal_store = Store(hass, 1, f"{DOMAIN}.meal_schedules.{entry_id or 'default'}")
         self.saved_meals: dict[str, dict] | None = None
+        # time.monotonic() of the last voice recordings read, per device.
+        self._voice_read_at: dict[str, float] = {}
 
     def tuya_device_id(self, device) -> str:
         """Return the Tuya devId associated with a Philips device."""
@@ -240,15 +248,16 @@ class PhilipsPetsSeriesDataUpdateCoordinator(DataUpdateCoordinator):
 
                         key = f"{home.id}_{event_type_str}"
                         events_by_home_and_type[key] = home_events
-                        _LOGGER.debug(
-                            "Events in home %s from %s to %s: %s",
-                            eventlog.short_id(home.id),
-                            from_date.isoformat(),
-                            to_date.isoformat(),
-                            eventlog.describe_events(
-                                event_type_str, home_events, home_devices
-                            ),
-                        )
+                        if _LOGGER.isEnabledFor(logging.DEBUG):
+                            _LOGGER.debug(
+                                "Events in home %s from %s to %s: %s",
+                                eventlog.short_id(home.id),
+                                from_date.isoformat(),
+                                to_date.isoformat(),
+                                eventlog.describe_events(
+                                    event_type_str, home_events, home_devices
+                                ),
+                            )
                     except Exception as e:
                         _LOGGER.warning("Failed to fetch events %s for home %s: %s", event_type, home.id, e)
 
@@ -326,17 +335,30 @@ class PhilipsPetsSeriesDataUpdateCoordinator(DataUpdateCoordinator):
                     # Only feeders have the feeder_voice_audio_id setting.
                     voice = getattr(full_settings.get(device.id), "feeder_voice_audio_id", None)
                     if voice is not None:
-                        try:
-                            voice_recordings[device.id] = await self._client.get_voice_recordings(
-                                self.tuya_device_id(device)
-                            )
-                        except Exception as err:
-                            _LOGGER.debug("Voice recordings unavailable for %s: %s", device.id, err)
-                            # Keep the last list, so the voice select does not
-                            # lose its options on one failed read.
-                            voice_recordings[device.id] = (
-                                (self.data or {}).get("voice_recordings", {}).get(device.id, [])
-                            )
+                        last = (self.data or {}).get("voice_recordings", {}).get(device.id, [])
+                        read_at = self._voice_read_at.get(device.id)
+                        stale = (
+                            read_at is None
+                            or time.monotonic() - read_at >= VOICE_REFRESH_SECONDS
+                            or (voice.audio_id and all(r.id != voice.audio_id for r in last))
+                        )
+                        voice_recordings[device.id] = last
+                        if stale:
+                            try:
+                                voice_recordings[device.id] = (
+                                    await self._client.get_voice_recordings(
+                                        self.tuya_device_id(device)
+                                    )
+                                )
+                            except Exception as err:
+                                # Keep the last list, so the voice select does
+                                # not lose its options on one failed read.
+                                _LOGGER.debug(
+                                    "Voice recordings unavailable for %s: %s", device.id, err
+                                )
+                            # A failed read also waits, so a broken Tuya
+                            # session is not asked again on every poll.
+                            self._voice_read_at[device.id] = time.monotonic()
 
                     await asyncio.sleep(self.delay_between_calls)
 
@@ -418,7 +440,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         data.get(CONF_LANGUAGE) or hass.config.language or "en"
     ).split("-")[0]
     _country = (data.get(CONF_COUNTRY) or hass.config.country or "").upper()
-    os.environ["PETSERIES_TUYA_COUNTRY_CODE"] = COUNTRY_DIAL_CODES.get(_country, "1")
+    dial_code = COUNTRY_DIAL_CODES.get(_country, "1")
+    os.environ["PETSERIES_TUYA_COUNTRY_CODE"] = dial_code
 
     access_token = data.get("access_token")
     refresh_token = data.get("refresh_token")
@@ -446,6 +469,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         id_token=id_token,
         token_save_callback=save_tokens_callback,
     )
+    # The environment variable is shared by all entries. The client keeps
+    # this entry's dial code for its own HomeID Tuya login.
+    client.tuya_country_code = dial_code
     try:
         await client.initialize()
     except Exception as e:
@@ -846,7 +872,8 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 
 async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
-    """Drop the cards' Lovelace resource when the last entry is removed."""
+    """Remove the entry's saved meals, and the cards' Lovelace resource with the last entry."""
+    await Store(hass, 1, f"{DOMAIN}.meal_schedules.{entry.entry_id}").async_remove()
     if any(
         other.entry_id != entry.entry_id
         for other in hass.config_entries.async_entries(DOMAIN)

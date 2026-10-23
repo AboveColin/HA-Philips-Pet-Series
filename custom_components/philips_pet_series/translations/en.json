@@ -150,7 +150,7 @@
           "device_gone": "The old device was already removed.",
           "device_back": "The account lists the device again. No repair is necessary.",
           "new_device_missing": "Home Assistant has no device for the new feeder yet. Reload the integration and try again.",
-          "meals_failed": "The entities were moved. These meals were not created: {failed}. Add them in the app."
+          "meals_failed": "The entities were moved. Check these meals in the app: {failed}."
         }
       }
     },
@@ -172,7 +172,7 @@
           "device_gone": "The old device was already removed.",
           "device_back": "The account lists the device again. No repair is necessary.",
           "new_device_missing": "Home Assistant has no device for the new feeder yet. Reload the integration and try again.",
-          "meals_failed": "The entities were moved. These meals were not created: {failed}. Add them in the app."
+          "meals_failed": "The entities were moved. Check these meals in the app: {failed}."
         }
       }
     }

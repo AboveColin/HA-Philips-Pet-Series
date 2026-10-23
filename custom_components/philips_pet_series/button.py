@@ -29,15 +29,14 @@ async def async_setup_entry(
             if client.tuya_client or getattr(client.auth, "id_token", None):
                 buttons.append(PhilipsPetsSeriesFeedButton(coordinator, client, home, device))
 
-            # Only feeders have the feeder_voice_audio_id setting.
             full_settings = coordinator.data.get("full_settings", {}).get(device.id)
+            # Only feeders have the feeder_voice_audio_id setting.
             if getattr(client.auth, "id_token", None) and getattr(
                 full_settings, "feeder_voice_audio_id", None
             ) is not None:
                 buttons.append(PhilipsPetsSeriesPlayVoiceButton(coordinator, client, home, device))
 
             # Check for filter settings to add Reset Filter button
-            full_settings = coordinator.data.get("full_settings", {}).get(device.id)
             if full_settings and (
                 getattr(full_settings, "filter_replacement_time", None)
                 or getattr(full_settings, "filter_application_time", None)

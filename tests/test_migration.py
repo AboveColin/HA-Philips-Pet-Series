@@ -65,6 +65,20 @@ class TestCandidates:
         assert migration.candidates(None, [device("new-1")], set()) == []
 
 
+class TestDefaultTarget:
+    def test_a_feeder_new_to_home_assistant_is_preselected(self):
+        current = [device("new-1"), device("other")]
+        assert migration.default_target(current, {"other"}) == "new-1"
+
+    def test_a_feeder_home_assistant_already_has_is_not_preselected(self):
+        # One feeder of two was removed from the account for good. The other
+        # one works, and a move would replace its entities.
+        assert migration.default_target([device("other")], {"other"}) is None
+
+    def test_no_candidate_gives_no_default(self):
+        assert migration.default_target([], set()) is None
+
+
 class TestUniqueIdMoves:
     def test_an_entity_the_new_device_also_has_moves(self):
         moves, drops = migration.unique_id_moves(
