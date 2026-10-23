@@ -29,10 +29,22 @@ A feeder in the HomeID app has a notification switch for each feeder event,
 such as meal dispensed, low food and the desiccant bag reminder. A feeder in
 the Pet Series app has the motion notification only.
 
+**Meal voice.** If you recorded a voice in the Philips app, the **Meal voice**
+select chooses which recording the feeder plays at a meal, and the **Play meal
+voice** button plays it on the feeder. Record, rename and remove voices in the
+app; Home Assistant shows the list the app keeps.
+
 **Knowing what is going on.** Online and offline status, food level, feeding
-faults, the filter-replacement reminder, and firmware versions. Recent events
-such as motion, meals and faults arrive as sensors you can trigger automations
-from.
+faults, the filter-replacement reminder, and firmware versions. On a feeder the
+filter-replacement reminder is the app's "Replace desiccant bag" reminder.
+Recent events such as motion, meals and faults arrive as sensors you can
+trigger automations from.
+
+**On the local network.** The **On local network** and **LAN address**
+entities listen for the broadcast the feeder sends on UDP port 6667 every few
+seconds. Broadcasts do not reach a Home Assistant container on a bridged
+Docker or Podman network, so these entities stay unavailable there. Run the
+container with host networking to use them.
 
 ## Supported devices
 

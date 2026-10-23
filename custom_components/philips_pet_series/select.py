@@ -28,6 +28,13 @@ async def async_setup_entry(
 
     selects = []
 
+    # The meal voice: the backend setting holds the id, the Tuya cloud the list.
+    if getattr(client.auth, "id_token", None):
+        for home, device in iter_home_devices(coordinator):
+            full_settings = coordinator.data.get("full_settings", {}).get(device.id)
+            if getattr(full_settings, "feeder_voice_audio_id", None) is not None:
+                selects.append(PhilipsPetsSeriesVoiceSelect(coordinator, client, home, device))
+
     if not client.tuya_client and not getattr(client.auth, "id_token", None):
         async_add_entities(selects)
         return
@@ -167,3 +174,70 @@ class PhilipsPetsSeriesSelect(PhilipsPetsSeriesEntity, SelectEntity):
             raise HomeAssistantError(
                 f"Failed to set {self._attr_name} to {option}: {e}"
             ) from e
+
+
+def voice_labels(recordings) -> dict[str, str]:
+    """Map an option label to a recording id. Equal names get the id added."""
+    names = [r.name or r.id for r in recordings]
+    return {
+        (name if names.count(name) == 1 else f"{name} ({r.id})"): r.id
+        for name, r in zip(names, recordings)
+    }
+
+
+class PhilipsPetsSeriesVoiceSelect(PhilipsPetsSeriesEntity, SelectEntity):
+    """The recording that the feeder plays at a meal.
+
+    The app records the voices in the Tuya cloud and keeps the id of the
+    selected one in the backend setting ``feeder_voice_audio_id``.
+    """
+
+    _attr_icon = "mdi:account-voice"
+    _attr_entity_category = EntityCategory.CONFIG
+
+    def __init__(self, coordinator, client, home, device):
+        super().__init__(coordinator, device, home)
+        self._client = client
+        self._attr_unique_id = f"{device.id}_meal_voice"
+        self._attr_name = "Meal voice"
+
+    def _labels(self) -> dict[str, str]:
+        recordings = self.coordinator.data.get("voice_recordings", {}).get(self._device.id, [])
+        return voice_labels(recordings)
+
+    def _active_id(self) -> str | None:
+        full_settings = self.coordinator.data.get("full_settings", {}).get(self._device.id)
+        voice = getattr(full_settings, "feeder_voice_audio_id", None)
+        return getattr(voice, "audio_id", None) or None
+
+    @property
+    def options(self) -> list[str]:
+        return list(self._labels())
+
+    @property
+    def current_option(self) -> str | None:
+        active = self._active_id()
+        return next((label for label, rid in self._labels().items() if rid == active), None)
+
+    @property
+    def extra_state_attributes(self):
+        recordings = self.coordinator.data.get("voice_recordings", {}).get(self._device.id, [])
+        active = self._active_id()
+        current = next((r for r in recordings if r.id == active), None)
+        return {
+            "audio_id": active,
+            "duration_ms": current.duration_ms if current else None,
+            "recordings": len(recordings),
+        }
+
+    async def async_select_option(self, option: str) -> None:
+        audio_id = self._labels().get(option)
+        if audio_id is None:
+            raise HomeAssistantError(f"Unknown meal voice: {option}")
+        try:
+            await self._client.devices_manager.update_device_settings(
+                self._home, self._device, feeder_voice_audio_id=audio_id
+            )
+        except Exception as err:
+            raise HomeAssistantError(f"Failed to set the meal voice to {option}: {err}") from err
+        await self.coordinator.async_request_refresh()

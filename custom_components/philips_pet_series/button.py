@@ -29,6 +29,13 @@ async def async_setup_entry(
             if client.tuya_client or getattr(client.auth, "id_token", None):
                 buttons.append(PhilipsPetsSeriesFeedButton(coordinator, client, home, device))
 
+            # Only feeders have the feeder_voice_audio_id setting.
+            full_settings = coordinator.data.get("full_settings", {}).get(device.id)
+            if getattr(client.auth, "id_token", None) and getattr(
+                full_settings, "feeder_voice_audio_id", None
+            ) is not None:
+                buttons.append(PhilipsPetsSeriesPlayVoiceButton(coordinator, client, home, device))
+
             # Check for filter settings to add Reset Filter button
             full_settings = coordinator.data.get("full_settings", {}).get(device.id)
             if full_settings and (
@@ -79,6 +86,24 @@ class PhilipsPetsSeriesFeedButton(PhilipsPetsSeriesEntity, ButtonEntity):
             await self.coordinator.async_request_refresh()
         except Exception as e:
             raise HomeAssistantError(f"Failed to dispense food: {e}") from e
+
+
+class PhilipsPetsSeriesPlayVoiceButton(PhilipsPetsSeriesEntity, ButtonEntity):
+    """Play the meal voice on the feeder, as the test button in the app does."""
+
+    _attr_icon = "mdi:play-circle-outline"
+
+    def __init__(self, coordinator, client, home, device):
+        super().__init__(coordinator, device, home)
+        self._client = client
+        self._attr_unique_id = f"{device.id}_play_voice_button"
+        self._attr_name = "Play meal voice"
+
+    async def async_press(self) -> None:
+        try:
+            await self._client.play_voice(self.coordinator.tuya_device_id(self._device))
+        except Exception as err:
+            raise HomeAssistantError(f"Failed to play the meal voice: {err}") from err
 
 
 class PhilipsPetsSeriesResetFilterButton(PhilipsPetsSeriesEntity, ButtonEntity):

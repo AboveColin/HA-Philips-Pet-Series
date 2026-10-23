@@ -67,6 +67,12 @@ SCAN_INTERVAL = timedelta(minutes=5)
 # midnight rollover and a fault raised late in the evening stays visible.
 EVENT_HISTORY_DAYS = 7
 
+# Events per type and query. The backend default is 50, newest first, and one
+# camera feeder logged 42 motion events in 11 hours. With 200, the most that
+# HomeID accepts, a busy camera must log 200 events before it hides the newest
+# event of a second device in the same home.
+EVENT_PAGE_SIZE = 200
+
 
 class PhilipsPetsSeriesDataUpdateCoordinator(DataUpdateCoordinator):
     """Coordinator to fetch data for Philips Pets Series sensors."""
@@ -169,6 +175,8 @@ class PhilipsPetsSeriesDataUpdateCoordinator(DataUpdateCoordinator):
             firmware_info = {}
             product_firmware_info = {}
             device_definitions = {}
+            # The meal voice recordings of each feeder, from the Tuya cloud.
+            voice_recordings = {}
             event_types = Event.get_event_types()
             tuya_status = None
             use_local_tuya = False
@@ -218,6 +226,7 @@ class PhilipsPetsSeriesDataUpdateCoordinator(DataUpdateCoordinator):
                             from_date=from_date,
                             to_date=to_date,
                             types=str(event_type),
+                            size=EVENT_PAGE_SIZE,
                         )
                         event_type_str = (
                             event_type
@@ -314,6 +323,20 @@ class PhilipsPetsSeriesDataUpdateCoordinator(DataUpdateCoordinator):
                         device.id,
                         firmware_info[device.id] or product_firmware_info[device.id],
                     )
+                    # Only feeders have the feeder_voice_audio_id setting.
+                    voice = getattr(full_settings.get(device.id), "feeder_voice_audio_id", None)
+                    if voice is not None:
+                        try:
+                            voice_recordings[device.id] = await self._client.get_voice_recordings(
+                                self.tuya_device_id(device)
+                            )
+                        except Exception as err:
+                            _LOGGER.debug("Voice recordings unavailable for %s: %s", device.id, err)
+                            # Keep the last list, so the voice select does not
+                            # lose its options on one failed read.
+                            voice_recordings[device.id] = (
+                                (self.data or {}).get("voice_recordings", {}).get(device.id, [])
+                            )
 
                     await asyncio.sleep(self.delay_between_calls)
 
@@ -365,6 +388,7 @@ class PhilipsPetsSeriesDataUpdateCoordinator(DataUpdateCoordinator):
                 "settings": settings,
                 "mode_settings": mode_settings,
                 "full_settings": full_settings,
+                "voice_recordings": voice_recordings,
                 "firmware_info": firmware_info,
                 "device_definitions": device_definitions,
                 "product_firmware_info": product_firmware_info,
