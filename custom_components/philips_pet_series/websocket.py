@@ -14,6 +14,7 @@ from homeassistant.components import websocket_api
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import device_registry as dr, entity_registry as er
 
+from . import migration
 from .const import DOMAIN
 
 # Unique-ID suffix -> the role the card asks for.  Suffixes are assigned in the
@@ -68,12 +69,10 @@ def ws_list_devices(hass: HomeAssistant, connection, msg) -> None:
 
     devices = []
     for device in device_registry.devices.values():
-        philips_id = next(
-            (domain_id for domain, domain_id in device.identifiers if domain == DOMAIN),
-            None,
-        )
-        if philips_id is None:
+        ids = migration.domain_ids(device.identifiers, DOMAIN)
+        if not ids:
             continue
+        philips_id = ids[0]
 
         entities: dict[str, str] = {}
         for entry in er.async_entries_for_device(entity_registry, device.id):
