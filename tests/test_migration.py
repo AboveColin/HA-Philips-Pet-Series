@@ -48,6 +48,24 @@ class TestPhilipsDeviceId:
     def test_an_identifier_of_another_integration_is_ignored(self):
         assert migration.philips_device_id({("mqtt", "old-1")}, DOMAIN) is None
 
+    def test_identifiers_of_other_lengths_are_skipped(self):
+        # Issue #43: one device of another integration with a 1- or 3-element
+        # identifier made the card's device list fail with "Unknown error".
+        identifiers = {("other",), ("other", "a", "b"), (DOMAIN, "old-1")}
+        assert migration.philips_device_id(identifiers, DOMAIN) == "old-1"
+
+
+class TestDomainIds:
+    def test_homes_are_included(self):
+        assert sorted(migration.domain_ids({(DOMAIN, "home_h1"), (DOMAIN, "f1")}, DOMAIN)) == [
+            "f1",
+            "home_h1",
+        ]
+
+    def test_short_and_long_tuples_do_not_raise(self):
+        identifiers = {("other",), (DOMAIN, "f1", "extra"), ()}
+        assert migration.domain_ids(identifiers, DOMAIN) == ["f1"]
+
 
 class TestCandidates:
     def test_only_the_same_product_can_take_the_place(self):

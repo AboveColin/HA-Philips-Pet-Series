@@ -22,12 +22,28 @@ HOME_PREFIX = "home_"
 _TIME = re.compile(r"^(\d{1,2}):(\d{2})")
 
 
-def philips_device_id(identifiers: Iterable[tuple[str, str]], domain: str) -> str | None:
+def domain_ids(identifiers: Iterable[tuple[str, ...]], domain: str) -> list[str]:
+    """
+    Return the ids a registry device carries for ``domain``.
+
+    Home Assistant stores identifiers as tuples of any length, and other
+    integrations do write 1- and 3-element ones. Unpacking every tuple as
+    ``(domain, id)`` raises on those, so a tuple shorter than two is skipped
+    and anything past the second element is ignored.
+    """
+    return [
+        str(identifier[1])
+        for identifier in identifiers
+        if len(identifier) >= 2 and identifier[0] == domain
+    ]
+
+
+def philips_device_id(identifiers: Iterable[tuple[str, ...]], domain: str) -> str | None:
     """Return the Philips device id of a registry device, or None for a home."""
-    for ident_domain, value in identifiers:
-        if ident_domain == domain and not str(value).startswith(HOME_PREFIX):
-            return str(value)
-    return None
+    return next(
+        (value for value in domain_ids(identifiers, domain) if not value.startswith(HOME_PREFIX)),
+        None,
+    )
 
 
 def candidates(model: str | None, current: Iterable[Any], registered: set[str]) -> list[Any]:

@@ -834,7 +834,7 @@ async def async_remove_config_entry_device(
         return False
     listed = {str(device.id) for device in data.get("devices", [])}
     listed |= {f"{migration.HOME_PREFIX}{home.id}" for home in data.get("homes", [])}
-    if any(domain == DOMAIN and value in listed for domain, value in device_entry.identifiers):
+    if any(value in listed for value in migration.domain_ids(device_entry.identifiers, DOMAIN)):
         return False
     philips_id = migration.philips_device_id(device_entry.identifiers, DOMAIN)
     if philips_id is not None and coordinator is not None:
